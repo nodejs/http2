@@ -34,6 +34,7 @@
 #include "env.h"
 #include "env-inl.h"
 #include "handle_wrap.h"
+#include "nghttp2/nghttp2ver.h"
 #include "req-wrap.h"
 #include "req-wrap-inl.h"
 #include "string_bytes.h"
@@ -3049,6 +3050,10 @@ void SetupProcessObject(Environment* env,
       versions,
       "modules",
       FIXED_ONE_BYTE_STRING(env->isolate(), node_modules_version));
+
+  READONLY_PROPERTY(versions,
+                    "nghttp2",
+                    FIXED_ONE_BYTE_STRING(env->isolate(), NGHTTP2_VERSION));
 
   // process._promiseRejectEvent
   Local<Object> promiseRejectEvent = Object::New(env->isolate());
