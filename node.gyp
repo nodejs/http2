@@ -144,6 +144,7 @@
 
       'dependencies': [
         'node_js2c#host',
+        'deps/nghttp2/nghttp2.gyp:nghttp2'
       ],
 
       'includes': [
@@ -154,7 +155,8 @@
         'src',
         'tools/msvs/genfiles',
         'deps/uv/src/ares',
-        '<(SHARED_INTERMEDIATE_DIR)',
+        '<(SHARED_INTERMEDIATE_DIR)', # for node_natives.h
+        'deps/nghttp2/lib/includes'
       ],
 
       'sources': [
