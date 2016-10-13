@@ -287,12 +287,133 @@ class Http2Session : public AsyncWrap {
                       size_t length,
                       int flags,
                       void *user_data) {
+    Http2Session* session_obj = (Http2Session*)user_data;
+    Environment* env = session_obj->env();
+    Local<Value> cb = session_obj->object()->Get(CALLBACK_ONSEND);
+    if (!cb->IsFunction())
+      return 0;
+
+    Local<Object> buffer =
+        Buffer::Copy(env, reinterpret_cast<const char*>(data), 
+                     length).ToLocalChecked();
+    Local<Value> argv[1] {buffer};
+    Environment::AsyncCallbackScope callback_scope(env);
+    session_obj->MakeCallback(cb.As<Function>(), arraysize(argv), argv);
+    return length;
+  }
+
+  static int on_rst_stream_frame(Http2Session* session,
+                                 Http2Stream* stream,
+                                 const nghttp2_frame_hd hd,
+                                 const nghttp2_rst_stream rst) {
+    Environment* env = session->env();
+    Local<Value> cb = session->object()->Get(CALLBACK_ONRSTSTREAM);
+    if (!cb->IsFunction())
+      return 0;
+    Local<Value> argv[] {
+      stream->object(),
+      Integer::NewFromUnsigned(env->isolate(), rst.error_code)
+    };
+    Environment::AsyncCallbackScope callback_scope(env);
+    session->MakeCallback(cb.As<Function>(), arraysize(argv), argv);
+    return 0;
+  }
+
+  static int on_goaway_frame(Http2Session* session,
+                             const nghttp2_frame_hd hd,
+                             const nghttp2_goaway goaway) {
+    Environment* env = session->env();
+    Isolate* isolate = env->isolate();
+    Local<Value> cb = session->object()->Get(CALLBACK_ONGOAWAY);
+    if (!cb->IsFunction())
+      return 0;
+
+    Local<Value> argv[3];
+    argv[0] = Integer::NewFromUnsigned(isolate, goaway.error_code);
+    argv[1] = Integer::New(isolate, goaway.last_stream_id);
+
+    if (goaway.opaque_data_len > 0) {
+      const char* data = reinterpret_cast<const char*>(goaway.opaque_data);
+      argv[2] =
+          Buffer::Copy(env, data, goaway.opaque_data_len).ToLocalChecked();
+    } else {
+      argv[2] = Undefined(env->isolate());
+    }
+
+    Environment::AsyncCallbackScope callback_scope(env);
+    session->MakeCallback(cb.As<Function>(), arraysize(argv), argv);
+    return 0;
+  }
+
+  static int on_data_frame(Http2Session* session,
+                           Http2Stream* stream,
+                           const nghttp2_frame_hd hd,
+                           const nghttp2_data data) {
+    Environment* env = session->env();
+    Local<Value> cb = session->object()->Get(CALLBACK_ONDATA);
+    if (!cb->IsFunction())
+      return 0;
+    Local<Value> argv[] {
+      stream->object(),
+      Integer::NewFromUnsigned(env->isolate(), hd.flags),
+      Integer::New(env->isolate(), hd.length),
+      Integer::New(env->isolate(), data.padlen)
+    };
+
+    Environment::AsyncCallbackScope callback_scope(env);
+    session->MakeCallback(cb.As<Function>(), arraysize(argv), argv);
+    return 0;
+  }
+
+  // Called at the completion of a headers frame
+  static int on_headers_frame(Http2Session* session,
+                              Http2Stream* stream,
+                              const nghttp2_frame_hd hd,
+                              const nghttp2_headers headers) {
+    Local<Object> obj = session->object();
+    Local<Value> cb = obj->Get(CALLBACK_ONHEADERS);
+    Environment* env = session->env();
+    if (!cb->IsFunction())
+      return 0;
+    Local<Value> argv[] {
+      stream->object(),
+      Integer::NewFromUnsigned(env->isolate(), hd.flags)
+    };
+    Environment::AsyncCallbackScope callback_scope(env);
+    session->MakeCallback(cb.As<Function>(), arraysize(argv), argv);
     return 0;
   }
 
   static int on_frame_recv(nghttp2_session *session,
                            const nghttp2_frame *frame,
                            void *user_data) {
+    Http2Session* session_obj = (Http2Session*)user_data;
+    Http2Stream* stream_data;
+    switch (frame->hd.type) {
+    case NGHTTP2_RST_STREAM:
+      stream_data =
+        (Http2Stream*)nghttp2_session_get_stream_user_data(
+            session, frame->hd.stream_id);
+      return on_rst_stream_frame(session_obj,
+                                 stream_data,
+                                 frame->hd,
+                                 frame->rst_stream);
+    case NGHTTP2_GOAWAY:
+      return on_goaway_frame(session_obj, frame->hd, frame->goaway);
+    case NGHTTP2_DATA:
+      stream_data =
+          (Http2Stream*)nghttp2_session_get_stream_user_data(
+              session, frame->hd.stream_id);
+      return on_data_frame(session_obj, stream_data, frame->hd, frame->data);
+    case NGHTTP2_HEADERS:
+      stream_data =
+          (Http2Stream*)nghttp2_session_get_stream_user_data(
+              session, frame->hd.stream_id);
+      return on_headers_frame(session_obj, stream_data,
+                              frame->hd, frame->headers);
+    default:
+      break;
+    }
     return 0;
   }
 
