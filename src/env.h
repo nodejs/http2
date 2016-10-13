@@ -239,6 +239,7 @@ namespace node {
   V(domains_stack_array, v8::Array)                                           \
   V(fs_stats_constructor_function, v8::Function)                              \
   V(generic_internal_field_template, v8::ObjectTemplate)                      \
+  V(http2stream_constructor_template, v8::FunctionTemplate)                   \
   V(jsstream_constructor_template, v8::FunctionTemplate)                      \
   V(module_load_list_array, v8::Array)                                        \
   V(pipe_constructor_template, v8::FunctionTemplate)                          \
