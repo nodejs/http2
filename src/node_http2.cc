@@ -16,8 +16,11 @@ namespace node {
 using v8::Array;
 using v8::Context;
 using v8::Exception;
+using v8::Function;
 using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
+using v8::Handle;
+using v8::HandleScope;
 using v8::Integer;
 using v8::Isolate;
 using v8::Local;
@@ -116,56 +119,74 @@ class Http2Header : BaseObject {
               nghttp2_nv_flag flag = NGHTTP2_NV_FLAG_NONE) :
               BaseObject(env, wrap) {
      Wrap(object(), this);
-     nv_.name = static_cast<uint8_t*>(malloc(nlen));
-     nv_.value = static_cast<uint8_t*>(malloc(vlen));
+     store_.AllocateSufficientStorage(nlen + vlen);
+     nv_.name = *store_;
+     nv_.value = *store_ + nlen;
      nv_.namelen = nlen;
      nv_.valuelen = vlen;
      nv_.flags = flag;
-     memcpy(nv_.name, name, nlen);
-     memcpy(nv_.value, value, vlen);
+     memcpy(*store_, name, nlen);
+     memcpy(*store_ + nlen, value, vlen);
   }
 
   ~Http2Header() {
-    free(nv_.name);
-    free(nv_.value);
   }
 
+  MaybeStackBuffer<uint8_t> store_;
   nghttp2_nv nv_;
 };
 
 class Http2Stream : public AsyncWrap {
  public:
-   static void GetID(Local<String> property,
-                     const PropertyCallbackInfo<Value>& args);
+  static void GetID(Local<String> property,
+                    const PropertyCallbackInfo<Value>& args);
+  static void GetSession(Local<String> property,
+                         const PropertyCallbackInfo<Value>& args);
 
-   size_t self_size() const override {
-     return sizeof(*this);
-   }
+  int32_t id() {
+    return stream_id_;
+  }
+
+  Http2Stream* previous() {
+    return prev_;
+  }
+
+  Http2Stream* next() {
+    return next_;
+  }
+
+  Http2Session* session() {
+    return session_;
+  }
+
+  size_t self_size() const override {
+    return sizeof(*this);
+  }
+
+  Http2Stream(Environment* env,
+              Local<Object> wrap,
+              Http2Session* session,
+              int32_t stream_id)
+      : AsyncWrap(env, wrap, AsyncWrap::PROVIDER_HTTP2STREAM),
+        session_(session),
+        stream_id_(stream_id) {
+    Wrap(object(), this);
+    prev_ = nullptr;
+    next_ = nullptr;
+  }
+
+  static void RemoveStream(Http2Stream* stream);
+  static void AddStream(Http2Stream* stream, Http2Session* session);
+
+  ~Http2Stream() override {}
 
  private:
-   friend class Http2Session;
+  friend class Http2Session;
 
-   Http2Stream(Environment* env,
-               Local<Object> wrap,
-               Http2Session* session,
-               int32_t stream_id)
-       : AsyncWrap(env, wrap, AsyncWrap::PROVIDER_HTTP2STREAM),
-         session_(session),
-         stream_id_(stream_id) {
-     Wrap(object(), this);
-     prev_ = nullptr;
-     next_ = nullptr;
-   }
-
-   ~Http2Stream() override {}
-
-   static void RemoveStream(Http2Stream* stream);
-   static void AddStream(Http2Stream* stream, Http2Session* session);
-
-   Http2Session* session_;
-   Http2Stream* prev_;
-   Http2Stream* next_;
-   int32_t stream_id_;
+  Http2Session* session_;
+  Http2Stream* prev_;
+  Http2Stream* next_;
+  int32_t stream_id_;
 };
 
 class Http2Session : public AsyncWrap {
@@ -206,6 +227,9 @@ class Http2Session : public AsyncWrap {
   static void GetLocalWindowSize(
     Local<String> property,
     const PropertyCallbackInfo<Value>& info);
+  static void GetRootStream(
+    Local<String> property,
+    const PropertyCallbackInfo<Value>& info);
 
   static void SetLocalWindowSize(const FunctionCallbackInfo<Value>& args);
   static void GetLocalSetting(const FunctionCallbackInfo<Value>& args);
@@ -240,6 +264,10 @@ class Http2Session : public AsyncWrap {
   }
 
  private:
+  static Http2Stream* create_stream(Environment* env,
+                                    Http2Session* session,
+                                    uint32_t stream_id);
+
   Http2Session(Environment* env,
                Local<Object> wrap,
                enum http2_session_type type)
@@ -247,7 +275,7 @@ class Http2Session : public AsyncWrap {
         type_(type) {
     Wrap(object(), this);
     Init(type);
-    //root_ = create_stream(env, this, 0);
+    root_ = create_stream(env, this, 0);
   }
 
   ~Http2Session() override {
@@ -323,15 +351,13 @@ class Http2Session : public AsyncWrap {
 
 class Http2DataProvider : BaseObject {
  public:
+  static void New(const FunctionCallbackInfo<Value>& args);
 
-   static void New(const FunctionCallbackInfo<Value>& args);
- 
-   nghttp2_data_provider* operator*() {
-     return &provider_;
-   }
+  nghttp2_data_provider* operator*() {
+    return &provider_;
+  }
 
  private:
-
   static ssize_t on_read(nghttp2_session* session,
                            int32_t stream_id,
                            uint8_t* buf,
@@ -357,6 +383,26 @@ class Http2DataProvider : BaseObject {
   nghttp2_data_provider provider_;
 };
 
+Http2Stream* Http2Session::create_stream(Environment* env,
+                                         Http2Session* session,
+                                         uint32_t stream_id) {
+  // TODO(jasnell): Make this a reusable ObjectTemplate
+  Local<ObjectTemplate> stream_template =
+    ObjectTemplate::New(env->isolate());
+  stream_template->SetInternalFieldCount(1);
+  stream_template->SetAccessor(FIXED_ONE_BYTE_STRING(env->isolate(), "id"),
+                               Http2Stream::GetID);
+  stream_template->SetAccessor(FIXED_ONE_BYTE_STRING(env->isolate(), "session"),
+                               Http2Stream::GetSession);
+  Local<Object> obj =
+      stream_template->NewInstance(env->context()).ToLocalChecked();
+  Http2Stream* stream = new Http2Stream(env, obj, session, stream_id);
+  if (stream_id > 0)
+    Http2Stream::AddStream(stream, session);
+  nghttp2_session_set_stream_user_data(**session, stream_id, stream);
+  return stream;
+}
+
 void Http2DataProvider::New(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
   if (!args.IsConstructCall())
@@ -380,16 +426,16 @@ void Http2Header::New(const FunctionCallbackInfo<Value>& args) {
     return env->ThrowTypeError("Second argument must be a string");
   Utf8Value key(env->isolate(), args[0].As<String>());
   Utf8Value value(env->isolate(), args[1].As<String>());
+  if (key.length() == 0)
+    return env->ThrowTypeError("First argument must not be an empty string");
   nghttp2_nv_flag flag =
       static_cast<nghttp2_nv_flag>(args.Length() > 2 ?
                                      args[2]->Uint32Value() :
                                      NGHTTP2_NV_FLAG_NONE);
   if (flag < NGHTTP2_NV_FLAG_NONE || flag > NGHTTP2_NV_FLAG_NO_COPY_VALUE)
     flag = NGHTTP2_NV_FLAG_NONE;
-  new Http2Header(env, args.This(),
-                 *key, key.length(),
-                 *value, value.length(),
-                 flag);
+  new Http2Header(env, args.This(), *key, key.length(),
+                 *value, value.length(), flag);
 }
 
 void Http2Header::GetName(Local<String> property,
@@ -402,6 +448,7 @@ void Http2Header::GetName(Local<String> property,
                               v8::NewStringType::kNormal,
                               (**header).namelen).ToLocalChecked());
 }
+
 void Http2Header::GetValue(Local<String> property,
                            const PropertyCallbackInfo<Value>& args) {
   Http2Header* header;
@@ -412,6 +459,7 @@ void Http2Header::GetValue(Local<String> property,
                               v8::NewStringType::kNormal,
                               (**header).valuelen).ToLocalChecked());
 }
+
 void Http2Header::GetFlags(Local<String> property,
                           const PropertyCallbackInfo<Value>& args) {
   Http2Header* header;
@@ -431,11 +479,28 @@ void Http2Session::New(const FunctionCallbackInfo<Value>& args) {
   new Http2Session(env, args.This(), type);
 }
 
+void Http2Stream::RemoveStream(Http2Stream* stream) {}
+void Http2Stream::AddStream(Http2Stream* stream, Http2Session* session) {}
+
 void Http2Stream::GetID(Local<String> property,
                         const PropertyCallbackInfo<Value>& args) {
   Http2Stream* stream;
   ASSIGN_OR_RETURN_UNWRAP(&stream, args.Holder());
-  args.GetReturnValue().Set(stream->stream_id_);
+  args.GetReturnValue().Set(stream->id());
+}
+
+void Http2Stream::GetSession(Local<String> property,
+                             const PropertyCallbackInfo<Value>& args) {
+  Http2Stream* stream;
+  ASSIGN_OR_RETURN_UNWRAP(&stream, args.Holder());
+  args.GetReturnValue().Set(stream->session()->object());
+}
+
+void Http2Session::GetRootStream(Local<String> property,
+                                 const PropertyCallbackInfo<Value>& info) {
+  Http2Session* session;
+  ASSIGN_OR_RETURN_UNWRAP(&session, info.Holder());
+  info.GetReturnValue().Set(session->root_->object());
 }
 
 void Http2Session::GetType(Local<String> property,
@@ -566,12 +631,12 @@ void Http2Session::SetLocalWindowSize(
                                                  NGHTTP2_FLAG_NONE,
                                                  stream, size);
   if (rv != 0) {
-   // TODO: Better error message.
-   // if rv == -501 == Invalid Arguments... what to do?
-   Local<Value> e = Exception::Error(OneByteString(env->isolate(), "Error"));
-   Local<Object> obj = e->ToObject(env->isolate());
-   obj->Set(env->code_string(), ERROR_STR(rv));
-   args.GetReturnValue().Set(e);
+    // TODO(jasnell): Better error message.
+    // if rv == -501 == Invalid Arguments... what to do?
+    Local<Value> e = Exception::Error(OneByteString(env->isolate(), "Error"));
+    Local<Object> obj = e->ToObject(env->isolate());
+    obj->Set(env->code_string(), ERROR_STR(rv));
+    args.GetReturnValue().Set(e);
   }
 }
 
@@ -629,7 +694,7 @@ void Http2Session::Destroy(const FunctionCallbackInfo<Value>& args) {
  * created. Destroy() must be called to actually tear down the session and
  * free resources.
  * Arguments:
- *   code {Integer} The goaway code, if any 
+ *   code {Integer} The goaway code, if any
  * Returns undefined if successfull, Error if not
  * Aborts if the session has been destroyed.
  **/
@@ -647,7 +712,7 @@ void Http2Session::Terminate(const FunctionCallbackInfo<Value>& args) {
     nghttp2_session_terminate_session2(**session, last_proc, error_code) :
     nghttp2_session_terminate_session(**session, error_code);
   if (rv != 0) {
-    // TODO: Better error message
+    // TODO(jasnell): Better error message
     Local<Value> e = Exception::Error(OneByteString(env->isolate(), "Error"));
     Local<Object> obj = e->ToObject(env->isolate());
     obj->Set(env->code_string(), ERROR_STR(rv));
@@ -690,7 +755,7 @@ void Http2Session::ChangeStreamPriority(
   nghttp2_priority_spec_init(&pri_spec, parent, weight, exclusive);
   int rv = nghttp2_session_change_stream_priority(**session, stream, &pri_spec);
   if (rv != 0) {
-    // TODO: Better error message.
+    // TODO(jasnell): Better error message.
     // if rv == -501 == Invalid Arguments... what to do?
     Local<Value> e = Exception::Error(OneByteString(env->isolate(), "Error"));
     Local<Object> obj = e->ToObject(env->isolate());
@@ -718,7 +783,7 @@ void Http2Session::Consume(const FunctionCallbackInfo<Value>& args) {
 
   int rv = nghttp2_session_consume(**session, stream, size);
   if (rv != 0) {
-    // TODO: Better error message.
+    // TODO(jasnell): Better error message.
     // if rv == -501 == Invalid Arguments... what to do?
     Local<Value> e = Exception::Error(OneByteString(env->isolate(), "Error"));
     Local<Object> obj = e->ToObject(env->isolate());
@@ -744,7 +809,7 @@ void Http2Session::ConsumeSession(const FunctionCallbackInfo<Value>& args) {
 
   int rv = nghttp2_session_consume_connection(**session, size);
   if (rv != 0) {
-    // TODO: Better error message.
+    // TODO(jasnell): Better error message.
     // if rv == -501 == Invalid Arguments... what to do?
     Local<Value> e = Exception::Error(OneByteString(env->isolate(), "Error"));
     Local<Object> obj = e->ToObject(env->isolate());
@@ -772,7 +837,7 @@ void Http2Session::ConsumeStream(const FunctionCallbackInfo<Value>& args) {
 
   int rv = nghttp2_session_consume_stream(**session, stream, size);
   if (rv != 0) {
-    // TODO: Better error message.
+    // TODO(jasnell): Better error message.
     // if rv == -501 == Invalid Arguments... what to do?
     Local<Value> e = Exception::Error(OneByteString(env->isolate(), "Error"));
     Local<Object> obj = e->ToObject(env->isolate());
@@ -815,12 +880,12 @@ void Http2Session::CreateIdleStream(const FunctionCallbackInfo<Value>& args) {
   int rv;
   rv = nghttp2_session_create_idle_stream(**session, stream, &pri_spec);
   if (rv != 0) {
-   // TODO: Better error message.
-   // if rv == -501 == Invalid Arguments... what to do?
-   Local<Value> e = Exception::Error(OneByteString(env->isolate(), "Error"));
-   Local<Object> obj = e->ToObject(env->isolate());
-   obj->Set(env->code_string(), ERROR_STR(rv));
-   args.GetReturnValue().Set(e);
+    // TODO(jasnell): Better error message.
+    // if rv == -501 == Invalid Arguments... what to do?
+    Local<Value> e = Exception::Error(OneByteString(env->isolate(), "Error"));
+    Local<Object> obj = e->ToObject(env->isolate());
+    obj->Set(env->code_string(), ERROR_STR(rv));
+    args.GetReturnValue().Set(e);
   }
 }
 
@@ -893,14 +958,14 @@ void Http2Session::SendServerConnectionHeader(
     return;
   Environment* env = Environment::GetCurrent(args);
 
-  // TODO: Get the settings somehow
+  // TODO(jasnell): Get the settings somehow
   nghttp2_settings_entry iv[1] = {
       {NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, 100}};
   int rv;
 
   rv = nghttp2_submit_settings(**session, NGHTTP2_FLAG_NONE, iv, ARRLEN(iv));
   if (rv != 0) {
-    // TODO: Better error message.
+    // TODO(jasnell): Better error message.
     // if rv == -501 == Invalid Arguments... what to do?
     Local<Value> e = Exception::Error(OneByteString(env->isolate(), "Error"));
     Local<Object> obj = e->ToObject(env->isolate());
@@ -914,20 +979,21 @@ void Http2Session::ReceiveData(const FunctionCallbackInfo<Value>& args) {
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
   if (!**session)
     return;
-  
+
   Environment* env = Environment::GetCurrent(args);
   // THROW_AND_RETURN_UNLESS_BUFFER(env, args[0]);
   // SPREAD_ARG(args[0], ts_obj);
-  // 
+  //
   // uint8_t* data = reinterpret_cast<uint8_t*>(ts_obj_data);
-  // 
+  //
   // ssize_t readlen;
-  // 
+  //
   // readlen = nghttp2_session_mem_recv(**session, data, ts_obj_length);
-  // 
+  //
   // if (readlen < 0) {
   //   // what is a good error to return?
-  //   Local<Value> e = Exception::Error(OneByteString(env->isolate(), "Error"));
+  //   Local<Value> e = Exception::Error(
+  //     OneByteString(env->isolate(), "Error"));
   //   Local<Object> obj = e->ToObject(env->isolate());
   //   obj->Set(env->code_string(), ERROR_STR(readlen));
   //   args.GetReturnValue().Set(e);
@@ -966,14 +1032,14 @@ void Http2Session::Respond(const FunctionCallbackInfo<Value>& args) {
 
   if (args.Length() > 1) {
     // args[1], if given, must be an array of Http2Header objects
-    if(!args[1]->IsArray())
+    if (!args[1]->IsArray())
       return env->ThrowTypeError(
           "Second argument must be an array of Http2Header objects");
     Local<Array> headers_array = args[1].As<Array>();
     int length = headers_array->Length();
     for (int i = 0; i < length; i++) {
       Local<Value> val = headers_array->Get(i);
-      if(!val->IsObject())
+      if (!val->IsObject())
         return env->ThrowTypeError("Value must be an Http2Header object");
       Http2Header* header;
       ASSIGN_OR_RETURN_UNWRAP(&header, val.As<Object>());
@@ -982,7 +1048,7 @@ void Http2Session::Respond(const FunctionCallbackInfo<Value>& args) {
   }
   if (args.Length() > 2) {
     // args[2], if given, must be a Http2DataProvider object
-    if(!args[2]->IsObject())
+    if (!args[2]->IsObject())
       return env->ThrowTypeError(
         "Third argument must be an Http2DataProvider object");
     Http2DataProvider* dataProvider;
@@ -991,11 +1057,11 @@ void Http2Session::Respond(const FunctionCallbackInfo<Value>& args) {
   }
 
   int rv = nghttp2_submit_response(**session,
-                                   stream->stream_id_,
+                                   stream->id(),
                                    &headers[0],
-                                   headers.size(), 
+                                   headers.size(),
                                    provider);
-  
+
   if (rv != 0) {
     Local<Value> e = Exception::Error(OneByteString(env->isolate(), "Error"));
     Local<Object> obj = e->ToObject(env->isolate());
@@ -1015,7 +1081,7 @@ void Http2Session::SendContinue(const FunctionCallbackInfo<Value>& args) {
   nghttp2_nv headers[] { MAKE_NV(":status", "100") };
   int rv = nghttp2_submit_headers(**session,
                                   NGHTTP2_FLAG_NONE,
-                                  stream->stream_id_,
+                                  stream->id(),
                                   nullptr,
                                   &headers[0], 1, nullptr);
   if (rv != 0) {
@@ -1036,7 +1102,7 @@ void Http2Session::ResumeData(const FunctionCallbackInfo<Value>& args) {
   Http2Stream* stream;
   ASSIGN_OR_RETURN_UNWRAP(&stream, args[0].As<Object>());
   nghttp2_nv headers[] { MAKE_NV(":status", "100") };
-  int rv = nghttp2_session_resume_data(**session, stream->stream_id_);
+  int rv = nghttp2_session_resume_data(**session, stream->id());
   if (rv != 0) {
     Local<Value> e = Exception::Error(OneByteString(env->isolate(), "Error"));
     Local<Object> obj = e->ToObject(env->isolate());
@@ -1060,14 +1126,14 @@ void Http2Session::SendTrailers(const FunctionCallbackInfo<Value>& args) {
 
   if (args.Length() > 1) {
     // args[1], if given, must be an array of Http2Header objects
-    if(!args[1]->IsArray())
+    if (!args[1]->IsArray())
       return env->ThrowTypeError(
           "Argument must be an array of Http2Header objects");
     Local<Array> headers_array = args[1].As<Array>();
     int length = headers_array->Length();
     for (int i = 0; i < length; i++) {
       Local<Value> val = headers_array->Get(i);
-      if(!val->IsObject())
+      if (!val->IsObject())
         return env->ThrowTypeError("value must be an Http2Header object");
       Http2Header* header;
       ASSIGN_OR_RETURN_UNWRAP(&header, val.As<Object>());
@@ -1077,7 +1143,7 @@ void Http2Session::SendTrailers(const FunctionCallbackInfo<Value>& args) {
 
   int rv = nghttp2_submit_headers(**session,
                                   NGHTTP2_FLAG_END_STREAM,
-                                  stream->stream_id_,
+                                  stream->id(),
                                   nullptr,
                                   &headers[0], 1, nullptr);
   if (rv != 0) {
@@ -1094,6 +1160,7 @@ void Initialize(Local<Object> target,
                 void* priv) {
   Environment* env = Environment::GetCurrent(context);
   Isolate* isolate = env->isolate();
+  HandleScope scope(isolate);
 
   Local<FunctionTemplate> provider =
       env->NewFunctionTemplate(Http2DataProvider::New);
@@ -1135,6 +1202,13 @@ void Initialize(Local<Object> target,
   t->SetClassName(FIXED_ONE_BYTE_STRING(isolate, "Http2Session"));
   Local<ObjectTemplate> instance = t->InstanceTemplate();
   instance->SetInternalFieldCount(1);
+  instance->SetAccessor(
+      FIXED_ONE_BYTE_STRING(isolate, "root"),
+      Http2Session::GetRootStream,
+      nullptr,
+      Local<Value>(),
+      v8::DEFAULT,
+      v8::DontDelete);
   instance->SetAccessor(
       FIXED_ONE_BYTE_STRING(isolate, "type"),
       Http2Session::GetType,
@@ -1208,48 +1282,33 @@ void Initialize(Local<Object> target,
 
   env->SetProtoMethod(t, "setLocalWindowSize",
                       Http2Session::SetLocalWindowSize);
-  env->SetProtoMethod(t, "getLocalSetting",
-                      Http2Session::GetLocalSetting);
-  env->SetProtoMethod(t, "getRemoteSetting",
-                      Http2Session::GetRemoteSetting);
-  env->SetProtoMethod(t, "destroy",
-                      Http2Session::Destroy);
-  env->SetProtoMethod(t, "terminate",
-                      Http2Session::Terminate);
+  env->SetProtoMethod(t, "getLocalSetting", Http2Session::GetLocalSetting);
+  env->SetProtoMethod(t, "getRemoteSetting", Http2Session::GetRemoteSetting);
+  env->SetProtoMethod(t, "destroy", Http2Session::Destroy);
+  env->SetProtoMethod(t, "terminate", Http2Session::Terminate);
   env->SetProtoMethod(t, "changeStreamPriority",
                       Http2Session::ChangeStreamPriority);
-  env->SetProtoMethod(t, "consume",
-                      Http2Session::Consume);
-  env->SetProtoMethod(t, "consumeSession",
-                      Http2Session::ConsumeSession);
-  env->SetProtoMethod(t, "consumeStream",
-                      Http2Session::ConsumeStream);
-  env->SetProtoMethod(t, "createIdleStream",
-                      Http2Session::CreateIdleStream);
+  env->SetProtoMethod(t, "consume", Http2Session::Consume);
+  env->SetProtoMethod(t, "consumeSession", Http2Session::ConsumeSession);
+  env->SetProtoMethod(t, "consumeStream", Http2Session::ConsumeStream);
+  env->SetProtoMethod(t, "createIdleStream", Http2Session::CreateIdleStream);
   env->SetProtoMethod(t, "getStreamLocalClose",
                       Http2Session::GetStreamLocalClose);
   env->SetProtoMethod(t, "getStreamRemoteClose",
                       Http2Session::GetStreamRemoteClose);
-  env->SetProtoMethod(t, "getStreamState",
-                      Http2Session::GetStreamState);
-  env->SetProtoMethod(t, "getStreamWeight",
-                      Http2Session::GetStreamWeight);
+  env->SetProtoMethod(t, "getStreamState", Http2Session::GetStreamState);
+  env->SetProtoMethod(t, "getStreamWeight", Http2Session::GetStreamWeight);
   env->SetProtoMethod(t, "sendServerConnectionHeader",
                       Http2Session::SendServerConnectionHeader);
-  env->SetProtoMethod(t, "receiveData",
-                      Http2Session::ReceiveData);
-  env->SetProtoMethod(t, "sendData",
-                      Http2Session::SendData);
-  env->SetProtoMethod(t, "rstStream",
-                      Http2Session::RstStream);
-  env->SetProtoMethod(t, "respond",
-                      Http2Session::Respond);
+  env->SetProtoMethod(t, "receiveData", Http2Session::ReceiveData);
+  env->SetProtoMethod(t, "sendData", Http2Session::SendData);
+  env->SetProtoMethod(t, "rstStream", Http2Session::RstStream);
+  env->SetProtoMethod(t, "respond", Http2Session::Respond);
   env->SetProtoMethod(t, "sendContinue", Http2Session::SendContinue);
   env->SetProtoMethod(t, "resumeData", Http2Session::ResumeData);
   env->SetProtoMethod(t, "sendTrailers", Http2Session::SendTrailers);
 
-  target->Set(FIXED_ONE_BYTE_STRING(isolate, "Http2Session"),
-              t->GetFunction());
+  target->Set(FIXED_ONE_BYTE_STRING(isolate, "Http2Session"), t->GetFunction());
 
   Local<Object> constants = Object::New(isolate);
   NODE_DEFINE_CONSTANT(constants, SESSION_TYPE_SERVER);
@@ -1299,7 +1358,7 @@ DATA_FLAGS(V)
 
   target->Set(FIXED_ONE_BYTE_STRING(isolate, "constants"), constants);
 }
-} // namespace http2
-} // namespace node
+}  // namespace http2
+}  // namespace node
 
 NODE_MODULE_CONTEXT_AWARE_BUILTIN(http2, node::http2::Initialize)
