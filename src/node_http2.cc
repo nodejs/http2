@@ -95,6 +95,13 @@ class Http2Header : BaseObject {
  public:
   static void New(const FunctionCallbackInfo<Value>& args);
 
+  static void GetName(Local<String> property,
+                      const PropertyCallbackInfo<Value>& args);
+  static void GetValue(Local<String> property,
+                       const PropertyCallbackInfo<Value>& args);
+  static void GetFlags(Local<String> property,
+                       const PropertyCallbackInfo<Value>& args);
+
   nghttp2_nv operator*() {
     return nv_;
   }
@@ -105,14 +112,15 @@ class Http2Header : BaseObject {
   Http2Header(Environment* env,
               Local<Object> wrap,
               char* name, size_t nlen,
-              char* value, size_t vlen) :
+              char* value, size_t vlen,
+              nghttp2_nv_flag flag = NGHTTP2_NV_FLAG_NONE) :
               BaseObject(env, wrap) {
      Wrap(object(), this);
      nv_.name = static_cast<uint8_t*>(malloc(nlen));
      nv_.value = static_cast<uint8_t*>(malloc(vlen));
      nv_.namelen = nlen;
      nv_.valuelen = vlen;
-     nv_.flags = NGHTTP2_NV_FLAG_NONE;
+     nv_.flags = flag;
      memcpy(nv_.name, name, nlen);
      memcpy(nv_.value, value, vlen);
   }
@@ -366,11 +374,49 @@ void Http2Header::New(const FunctionCallbackInfo<Value>& args) {
   if (!args.IsConstructCall())
     return env->ThrowTypeError("Class constructor Http2Header cannot "
                                "be invoked without 'new'");
+  if (!args[0]->IsString())
+    return env->ThrowTypeError("First argument must be a string");
+  if (!args[1]->IsString())
+    return env->ThrowTypeError("Second argument must be a string");
   Utf8Value key(env->isolate(), args[0].As<String>());
   Utf8Value value(env->isolate(), args[1].As<String>());
+  nghttp2_nv_flag flag =
+      static_cast<nghttp2_nv_flag>(args.Length() > 2 ?
+                                     args[2]->Uint32Value() :
+                                     NGHTTP2_NV_FLAG_NONE);
+  if (flag < NGHTTP2_NV_FLAG_NONE || flag > NGHTTP2_NV_FLAG_NO_COPY_VALUE)
+    flag = NGHTTP2_NV_FLAG_NONE;
   new Http2Header(env, args.This(),
                  *key, key.length(),
-                 *value, value.length());
+                 *value, value.length(),
+                 flag);
+}
+
+void Http2Header::GetName(Local<String> property,
+                          const PropertyCallbackInfo<Value>& args) {
+  Http2Header* header;
+  ASSIGN_OR_RETURN_UNWRAP(&header, args.Holder());
+  Environment* env = header->env();
+  args.GetReturnValue().Set(String::NewFromUtf8(env->isolate(),
+                              reinterpret_cast<const char*>((**header).name),
+                              v8::NewStringType::kNormal,
+                              (**header).namelen).ToLocalChecked());
+}
+void Http2Header::GetValue(Local<String> property,
+                           const PropertyCallbackInfo<Value>& args) {
+  Http2Header* header;
+  ASSIGN_OR_RETURN_UNWRAP(&header, args.Holder());
+  Environment* env = header->env();
+  args.GetReturnValue().Set(String::NewFromUtf8(env->isolate(),
+                              reinterpret_cast<const char*>((**header).value),
+                              v8::NewStringType::kNormal,
+                              (**header).valuelen).ToLocalChecked());
+}
+void Http2Header::GetFlags(Local<String> property,
+                          const PropertyCallbackInfo<Value>& args) {
+  Http2Header* header;
+  ASSIGN_OR_RETURN_UNWRAP(&header, args.Holder());
+  args.GetReturnValue().Set(header->nv_.flags);
 }
 
 void Http2Session::New(const FunctionCallbackInfo<Value>& args) {
@@ -1060,6 +1106,27 @@ void Initialize(Local<Object> target,
       env->NewFunctionTemplate(Http2Header::New);
   header->InstanceTemplate()->SetInternalFieldCount(1);
   header->SetClassName(FIXED_ONE_BYTE_STRING(isolate, "Http2Header"));
+  header->InstanceTemplate()->SetAccessor(
+      FIXED_ONE_BYTE_STRING(isolate, "name"),
+      Http2Header::GetName,
+      nullptr,
+      Local<Value>(),
+      v8::DEFAULT,
+      v8::DontDelete);
+  header->InstanceTemplate()->SetAccessor(
+      FIXED_ONE_BYTE_STRING(isolate, "value"),
+      Http2Header::GetValue,
+      nullptr,
+      Local<Value>(),
+      v8::DEFAULT,
+      v8::DontDelete);
+  header->InstanceTemplate()->SetAccessor(
+      FIXED_ONE_BYTE_STRING(isolate, "flags"),
+      Http2Header::GetFlags,
+      nullptr,
+      Local<Value>(),
+      v8::DEFAULT,
+      v8::DontDelete);
   target->Set(FIXED_ONE_BYTE_STRING(isolate, "Http2Header"),
               header->GetFunction());
 
@@ -1193,6 +1260,35 @@ void Initialize(Local<Object> target,
   NODE_DEFINE_CONSTANT(constants, NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE);
   NODE_DEFINE_CONSTANT(constants, NGHTTP2_SETTINGS_MAX_FRAME_SIZE);
   NODE_DEFINE_CONSTANT(constants, NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_STREAM_STATE_IDLE);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_STREAM_STATE_OPEN);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_STREAM_STATE_RESERVED_LOCAL);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_STREAM_STATE_RESERVED_REMOTE);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_STREAM_STATE_HALF_CLOSED_LOCAL);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_STREAM_STATE_HALF_CLOSED_REMOTE);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_STREAM_STATE_CLOSED);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_HCAT_REQUEST);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_HCAT_RESPONSE);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_HCAT_PUSH_RESPONSE);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_HCAT_HEADERS);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_NO_ERROR);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_PROTOCOL_ERROR);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_INTERNAL_ERROR);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_FLOW_CONTROL_ERROR);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_SETTINGS_TIMEOUT);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_STREAM_CLOSED);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_FRAME_SIZE_ERROR);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_REFUSED_STREAM);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_CANCEL);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_COMPRESSION_ERROR);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_CONNECT_ERROR);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_ENHANCE_YOUR_CALM);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_INADEQUATE_SECURITY);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_HTTP_1_1_REQUIRED);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_NV_FLAG_NONE);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_NV_FLAG_NO_INDEX);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_NV_FLAG_NO_COPY_NAME);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_NV_FLAG_NO_COPY_VALUE);
 
 #define V(name) NODE_DEFINE_CONSTANT(constants, CALLBACK_##name);
 SESSION_CALLBACKS(V)
