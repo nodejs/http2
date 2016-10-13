@@ -9,6 +9,11 @@
       'target_name': 'nghttp2',
       'type': '<(library)',
       'include_dirs': ['lib/includes'],
+      'conditions': [
+        ['debug_nghttp2 == 1', {
+          'defines': [ 'DEBUGBUILD=1' ]
+        }]
+      ],
       'direct_dependent_settings': {
         'include_dirs': [ 'lib/includes' ]
       },
