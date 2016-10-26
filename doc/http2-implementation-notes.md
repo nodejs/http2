@@ -36,8 +36,79 @@ Note, however, that the performance of this could be improved by moving the
 socket handling into the native layer. Doing so would allow us to skip the
 boundary crossing that has to occur.
 
+## Example
+
+```js
+const fs = require('fs');
+const http2 = require('http').HTTP2;
+const options = {
+  key: fs.readFileSync('test/fixtures/keys/agent2-key.pem'),
+  cert: fs.readFileSync('test/fixtures/keys/agent2-cert.pem')
+};
+
+const server = http2.createSecureServer(options, (req, res) => {
+
+  res.writeHead(200, {'content-type': 'text/html'});
+
+  const favicon = res.createPushResponse();
+  favicon.path = '/favicon.ico';
+  favicon.push((req, res) => {
+    res.setHeader('content-type', 'image/jpeg');
+    fs.createReadStream('/some/image.jpg').pipe(res);
+  });
+
+  const pushResponse = res.createPushResponse();
+  pushResponse.path = '/image.jpg';
+  pushResponse.push((req, res) => {
+    res.setHeader('content-type', 'image/jpeg');
+    fs.createReadStream('/some/image/jpg').pipe(res);
+  });
+
+    res.end('<html><head><link rel="preload" href="/favicon.ico"/></head><body><h1>this is some data</h2><img src="/image.jpg" /></body></html>');
+
+});
+server.listen(8000);
+```
+
+## class HTTP2.Http2Settings
+
+Encapsulates the HTTP/2 settings supported by this implementation.
+
+### Constructor: `new HTTP2.Http2Settings()`
+### Property: `settings.maxHeaderListSize` (Read-Write)
+### Property: `settings.maxFrameSize` (Read-Write)
+### Property: `settings.initialWindowSize` (Read-Write)
+### Property: `settings.maxConcurrentStreams` (Read-Write)
+### Property: `settings.enablePush` (Read-Write)
+### Property: `settings.headerTableSize` (Read-Write)
+### Method: `settings.pack()`
+### Method: `settings.reset()`
+### Method: `settings.setDefaults()`
+
+## class HTTP2.Http2Header
+
+Encapsulates an individual HTTP/2 header.
+
+### Constructor: `new HTTP2.Http2Header(name, value)`
+### Property: `header.name` (Read-only)
+### Property: `header.value` (Read-only)
+### Property: `header.flags` (Read-Write)
 
 ## class HTTP2.Http2Session : EventEmitter {}
+
+### Constructor: `new HTTP2.Http2Session(type, options)`
+
+* `type` {Number}`HTTP2.constants.SESSION_TYPE_SERVER` or
+  `HTTP2.constants.SESSION_TYPE_CLIENT`
+* `options` {Object}
+  * `maxDeflateDynamicTableSize` {Number}
+  * `maxReservedRemoteStreams` {Number}
+  * `maxSendHeaderBlockLength` {Number}
+  * `noAutoPingAck` {Boolean}
+  * `noAutoWindowUpdate` {Boolean}
+  * `noHttpMessaging` {Boolean}
+  * `noRecvClientMagic` {Boolean}
+  * `peerMaxConcurrentStreams` {Number}
 
 ### Event: `'send'`
 
@@ -160,32 +231,52 @@ The `'goaway'` event is emitted when a GOAWAY frame is received.
 
 The `'rst-stream'` event is emitted when a RST-STREAM frame is received.
 
-### Property: `session.localWindowSize` (Read-only)
-### Property: `session.inflateDynamicTableSize` (Read-only)
 ### Property: `session.deflateDynamicTableSize` (Read-only)
-### Property: `session.remoteWindowSize` (Read-only)
-### Property: `session.outboundQueueSize` (Read-only)
-### Property: `session.lastProcStreamID` (Read-only)
-### Property: `session.effectiveRecvDataLength` (Read-only)
 ### Property: `session.effectiveLocalWindowSize` (Read-only)
+### Property: `session.effectiveRecvDataLength` (Read-only)
+### Property: `session.inflateDynamicTableSize` (Read-only)
+### Property: `session.lastProcStreamID` (Read-only)
+### Property: `session.localSettings` (Read-Write)
+### Property: `session.localWindowSize` (Read-Write)
 ### Property: `session.nextStreamID` (Read-Write)
-### Method: `session.resumeData(stream)`
-### Method: `session.respond(stream, headers, provider)`
-### Method: `session.destroy()`
-### Method: `session.terminate(code)`
-### Method: `session.sendConnectionHeader()`
-### Method: `session.receiveData(data)`
-### Method: `session.sendData()`
-### Method: `session.changeStreamPriority(stream, parent, weight, exclusive)`
+### Property: `session.outboundQueueSize` (Read-only)
+### Property: `session.remoteSettings` (Read-only)
+### Property: `session.remoteWindowSize` (Read-only)
+### Property: `session.type` (Read-only)
+### Property: `session.wantRead` (Read-only)
+### Property: `session.wantWrite` (Read-only)
+
 ### Method: `session.consume(stream, size)`
 ### Method: `session.consumeSession(size)`
-### Method: `session.consumeStream(stream, size)`
-### Method: `session.rstStream(stream, code)`
 ### Method: `session.createIdleStream(stream, parent, weight, exclusive)`
+### Method: `session.destroy()`
+### Method: `session.ping(buf)`
+### Method: `session.receiveData(data)`
+### Method: `session.sendData()`
+### Method: `session.sendWindowUpdate(increment)`
+### Method: `session.terminate(code)`
 
 ## HTTP2.Http2Stream
 
 ### Property: `stream.id` (Read-only)
+### Property: `stream.localWindowSize` (Read-Write)
+### Property: `stream.localClose` (Read-only)
+### Property: `stream.remoteClose` (Read-only)
+### Property: `stream.session` (Read-only)
+### Property: `stream.state` (Read-only)
+### Property: `stream.sumDependencyWeight` (Read-only)
+### Property: `stream.weight` (Read-only)
+
+### Method: `stream.changeStreamPriority(parent, weight, exclusive)`
+### Method: `stream.consume(size)`
+### Method: `stream.sendContinuue()`
+### Method: `stream.sendDataFrame(flags, provider)`
+### Method: `stream.sendPriority(paret weight, exclusive)`
+### Method: `stream.sendRstStream(code)`
+### Method: `stream.sendTrailers(trailers)`
+### Method: `stream.sendWindowUpdate(increment)`
+### Method: `stream.respond(headers, provider)`
+### Method: `stream.resumeData()`
 
 ## HTTP2.Http2Request : extends stream.Readable
 
@@ -220,9 +311,9 @@ The `'rst-stream'` event is emitted when a RST-STREAM frame is received.
 ### Method: `response.write()`
 ### Method: `response.end()`
 
-## HTTP2.createServerSession(options)
+## HTTP2.createServerSession()
 
-## HTTP2.createClientSession(options)
+## HTTP2.createClientSession()
 
 ## HTTP2.createServer(options, callback)
 

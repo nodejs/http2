@@ -86,6 +86,7 @@ namespace node {
   V(detached_string, "detached")                                              \
   V(disposed_string, "_disposed")                                             \
   V(domain_string, "domain")                                                  \
+  V(emit_string, "emit")                                                      \
   V(emitting_top_level_domain_error_string, "_emittingTopLevelDomainError")   \
   V(exchange_string, "exchange")                                              \
   V(idle_string, "idle")                                                      \
@@ -239,6 +240,7 @@ namespace node {
   V(domains_stack_array, v8::Array)                                           \
   V(fs_stats_constructor_function, v8::Function)                              \
   V(generic_internal_field_template, v8::ObjectTemplate)                      \
+  V(http2settings_constructor_template, v8::FunctionTemplate)                 \
   V(http2stream_constructor_template, v8::FunctionTemplate)                   \
   V(jsstream_constructor_template, v8::FunctionTemplate)                      \
   V(module_load_list_array, v8::Array)                                        \
