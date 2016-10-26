@@ -178,6 +178,7 @@ inline Environment::Environment(IsolateData* isolate_data,
 #endif
       handle_cleanup_waiting_(0),
       http_parser_buffer_(nullptr),
+      http2_socket_buffer_(nullptr),
       context_(context->GetIsolate(), context) {
   // We'll be creating new objects so make sure we've entered the context.
   v8::HandleScope handle_scope(isolate());
@@ -232,6 +233,7 @@ inline Environment::~Environment() {
   delete[] heap_statistics_buffer_;
   delete[] heap_space_statistics_buffer_;
   delete[] http_parser_buffer_;
+  delete[] http2_socket_buffer_;
 }
 
 inline v8::Isolate* Environment::isolate() const {
@@ -357,6 +359,15 @@ inline char* Environment::http_parser_buffer() const {
 inline void Environment::set_http_parser_buffer(char* buffer) {
   CHECK_EQ(http_parser_buffer_, nullptr);  // Should be set only once.
   http_parser_buffer_ = buffer;
+}
+
+inline char* Environment::http2_socket_buffer() const {
+  return http2_socket_buffer_;
+}
+
+inline void Environment::set_http2_socket_buffer(char* buffer) {
+  CHECK_EQ(http2_socket_buffer_, nullptr);  // Should be set only once.
+  http2_socket_buffer_ = buffer;
 }
 
 inline Environment* Environment::from_cares_timer_handle(uv_timer_t* handle) {
