@@ -18,7 +18,10 @@
 namespace node {
 namespace http2 {
 
+using v8::Exception;
 using v8::FunctionCallbackInfo;
+using v8::HandleScope;
+using v8::Integer;
 using v8::Local;
 using v8::Name;
 using v8::Object;
@@ -105,14 +108,6 @@ HTTP_STATUS_CODES(V)
 #define MIN(A, B) (A < B ? A : B)
 #define MAX(A, B) (A > B ? A : B)
 
-#define MAKE_NV(NAME, VALUE)                                                  \
-  {                                                                           \
-    const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(NAME)),             \
-    const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(VALUE)),            \
-    sizeof(NAME) - 1, sizeof(VALUE) - 1,                                      \
-    NGHTTP2_NV_FLAG_NONE                                                      \
-  }
-
 #define SET_SESSION_CALLBACK(callbacks, name)                                 \
   nghttp2_session_callbacks_set_##name##_callback(callbacks, name);
 
@@ -150,10 +145,53 @@ enum http2_data_flags {
     obj->MakeCallback(cb.As<Function>(), arraysize(argv), argv);              \
   } while (0)
 
+#define EMIT_ERROR_IF_FAIL(env, obj, rv)                                      \
+  do {                                                                        \
+    if (rv < 0) {                                                             \
+      HandleScope scope(env->isolate());                                      \
+      Local<String> msg =                                                     \
+          String::NewFromUtf8(env->isolate(),                                 \
+                              nghttp2_strerror(rv),                           \
+                              v8::NewStringType::kNormal).ToLocalChecked();   \
+      Local<Object> e = Exception::Error(msg)->ToObject(env->isolate());      \
+      CHECK(!e.IsEmpty());                                                    \
+      e->Set(env->errno_string(), Integer::New(env->isolate(), rv));          \
+      e->Set(env->code_string(),                                              \
+            OneByteString(env->isolate(), nghttp2_errname(rv)));              \
+      EMIT(env, obj, "error", e);                                             \
+      return;                                                                 \
+    }                                                                         \
+  } while (0)
+
 #define SESSION_OR_RETURN(session)                                            \
   {                                                                           \
     if (!**session) return;                                                   \
   }
+
+#define THROW_AND_RETURN_UNLESS_HTTP2HEADERS(env, obj)                        \
+  do {                                                                        \
+    if (!env->http2headers_constructor_template()->HasInstance(obj))          \
+      return env->ThrowTypeError("argument must be an Http2Headers instance");\
+  } while (0)
+
+#define THROW_AND_RETURN_UNLESS_HTTP2SETTINGS(env, obj)                        \
+  do {                                                                         \
+    if (!env->http2settings_constructor_template()->HasInstance(obj))          \
+      return env->ThrowTypeError("argument must be an Http2Settings instance");\
+  } while (0)
+
+#define THROW_AND_RETURN_UNLESS_HTTP2STREAM(env, obj)                          \
+  do {                                                                         \
+    if (!env->http2stream_constructor_template()->HasInstance(obj))            \
+      return env->ThrowTypeError("argument must be an Http2Stream instance");  \
+  } while (0)
+
+#define THROW_AND_RETURN_UNLESS_HTTP2DATAPROVIDER(env, obj)                    \
+  do {                                                                         \
+    if (!env->http2dataprovider_constructor_template()->HasInstance(obj))      \
+      return env->ThrowTypeError(                                              \
+          "argument must be an Http2DataProvider instance");                   \
+  } while (0)
 
 enum http2_session_type {
   SESSION_TYPE_SERVER,
@@ -215,8 +253,15 @@ class Http2Options {
   nghttp2_option* options_;
 };
 
-class Http2Settings : BaseObject {
+class Http2Settings : public BaseObject {
  public:
+  Http2Settings(Environment* env,
+                Local<Object> wrap,
+                Http2Session* session = nullptr,
+                bool localSettings = true);
+
+  ~Http2Settings() {}
+
   static void New(const FunctionCallbackInfo<Value>& args);
   static void Defaults(const FunctionCallbackInfo<Value>& args);
   static void Reset(const FunctionCallbackInfo<Value>& args);
@@ -283,12 +328,6 @@ class Http2Settings : BaseObject {
 
  private:
   friend class Http2Session;
-  Http2Settings(Environment* env,
-                Local<Object> wrap,
-                Http2Session* session = nullptr,
-                bool localSettings = true);
-
-  ~Http2Settings() {}
 
   void Set(int32_t id, uint32_t value) {
     settings_[id] = value;
@@ -327,37 +366,89 @@ class Http2Priority {
   nghttp2_priority_spec spec_;
 };
 
-
-class Http2Header : BaseObject {
+class Http2Header : public nghttp2_nv {
  public:
+  Http2Header(const Http2Header& other) {
+    this->name = Malloc<uint8_t>(other.namelen);
+    this->value = Malloc<uint8_t>(other.valuelen);
+    this->namelen = other.namelen;
+    this->valuelen = other.valuelen;
+    this->flags = other.flags;
+    memcpy(this->name, other.name, namelen);
+    memcpy(this->value, other.value, valuelen);
+  }
+
+  Http2Header(const char* name,
+              const char* value,
+              size_t namelen,
+              size_t valuelen,
+              bool noindex = false) {
+    uint8_t flags = NGHTTP2_NV_FLAG_NO_COPY_NAME |
+                    NGHTTP2_NV_FLAG_NO_COPY_VALUE;
+    if (noindex)
+      flags |= NGHTTP2_NV_FLAG_NO_INDEX;
+    this->name = Malloc<uint8_t>(namelen);
+    this->value = Malloc<uint8_t>(valuelen);
+    this->namelen = namelen;
+    this->valuelen = valuelen;
+    this->flags = flags;
+    memcpy(this->name, name, namelen);
+    memcpy(this->value, value, valuelen);
+  }
+  ~Http2Header() {
+    free(this->name);
+    free(this->value);
+  }
+};
+
+class Http2Headers : public BaseObject {
+ public:
+  Http2Headers(Environment* env,
+               Local<Object> wrap,
+               int reserve) :
+               BaseObject(env, wrap) {
+    MakeWeak(this);
+    entries_.reserve(reserve);
+  }
+
+  ~Http2Headers() {}
+
   static void New(const FunctionCallbackInfo<Value>& args);
-
-  static void GetName(Local<String> property,
+  static void Add(const FunctionCallbackInfo<Value>& args);
+  static void Clear(const FunctionCallbackInfo<Value>& args);
+  static void Reserve(const FunctionCallbackInfo<Value>& args);
+  static void GetSize(Local<String> property,
                       const PropertyCallbackInfo<Value>& info);
-  static void GetValue(Local<String> property,
-                       const PropertyCallbackInfo<Value>& info);
-  static void GetFlags(Local<String> property,
-                       const PropertyCallbackInfo<Value>& info);
-  static void SetFlags(Local<String> property,
-                       Local<Value> value,
-                       const PropertyCallbackInfo<void>& info);
 
-  nghttp2_nv operator*() {
-    return nv_;
+  size_t Size() {
+    return entries_.size();
+  }
+
+  nghttp2_nv* operator*() {
+    return &entries_[0];
   }
 
  private:
-  friend class Http2Session;
+  void Add(const char* name,
+           const char* value,
+           size_t nlen,
+           size_t vlen,
+           bool noindex = false) {
+    uint8_t flags = NGHTTP2_NV_FLAG_NONE;
+    if (noindex)
+      flags |= NGHTTP2_NV_FLAG_NO_INDEX;
+    entries_.push_back({name, value, nlen, vlen, noindex});
+  }
 
-  Http2Header(Environment* env,
-              Local<Object> wrap,
-              char* name, size_t nlen,
-              char* value, size_t vlen);
+  void Reserve(int inc) {
+    entries_.reserve(entries_.size() + inc);
+  }
 
-  ~Http2Header() {}
+  void Clear() {
+    entries_.clear();
+  }
 
-  MaybeStackBuffer<uint8_t> store_;
-  nghttp2_nv nv_;
+  std::vector<Http2Header> entries_;
 };
 
 
@@ -367,6 +458,8 @@ class Http2Stream : public AsyncWrap {
                      const PropertyCallbackInfo<Value>& args);
   static void GetID(Local<String> property,
                     const PropertyCallbackInfo<Value>& args);
+  static void GetSession(Local<String> property,
+                        const PropertyCallbackInfo<Value>& args);
   static void GetState(Local<String> property,
                        const PropertyCallbackInfo<Value>& args);
   static void GetWeight(Local<String> property,
@@ -434,7 +527,12 @@ class Http2Stream : public AsyncWrap {
   static void RemoveStream(Http2Stream* stream);
   static void AddStream(Http2Stream* stream, Http2Session* session);
 
-  ~Http2Stream() override {}
+  ~Http2Stream() override {
+    session_ = nullptr;
+    prev_ = nullptr;
+    next_ = nullptr;
+    stream_ = nullptr;
+  }
 
  private:
   friend class Http2Session;
@@ -621,16 +719,22 @@ class Http2Session : public AsyncWrap {
 };
 
 
-class Http2DataProvider : BaseObject {
+class Http2DataProvider : public BaseObject {
  public:
+  Http2DataProvider(Environment* env,
+                    Local<Object> wrap) :
+                    BaseObject(env, wrap) {
+    MakeWeak(this);
+    provider_.read_callback = on_read;
+    provider_.source.ptr = this;
+  }
+
+  ~Http2DataProvider() {}
+
   static void New(const FunctionCallbackInfo<Value>& args);
 
   nghttp2_data_provider* operator*() {
     return &provider_;
-  }
-
-  Http2Stream* stream() {
-    return stream_;
   }
 
  private:
@@ -643,16 +747,59 @@ class Http2DataProvider : BaseObject {
                          nghttp2_data_source* source,
                          void* user_data);
 
-  Http2DataProvider(Environment* env,
-                    Local<Object> wrap,
-                    Http2Stream* stream);
-
-  ~Http2DataProvider() {}
-
-  Http2Stream* stream_;
   nghttp2_data_provider provider_;
-  Local<Name> read_;
 };
+
+#define NGHTTP2_ERROR_CODES(V)                                                 \
+  V(NGHTTP2_ERR_INVALID_ARGUMENT)                                              \
+  V(NGHTTP2_ERR_BUFFER_ERROR)                                                  \
+  V(NGHTTP2_ERR_UNSUPPORTED_VERSION)                                           \
+  V(NGHTTP2_ERR_WOULDBLOCK)                                                    \
+  V(NGHTTP2_ERR_PROTO)                                                         \
+  V(NGHTTP2_ERR_INVALID_FRAME)                                                 \
+  V(NGHTTP2_ERR_EOF)                                                           \
+  V(NGHTTP2_ERR_DEFERRED)                                                      \
+  V(NGHTTP2_ERR_STREAM_ID_NOT_AVAILABLE)                                       \
+  V(NGHTTP2_ERR_STREAM_CLOSED)                                                 \
+  V(NGHTTP2_ERR_STREAM_CLOSING)                                                \
+  V(NGHTTP2_ERR_STREAM_SHUT_WR)                                                \
+  V(NGHTTP2_ERR_INVALID_STREAM_ID)                                             \
+  V(NGHTTP2_ERR_INVALID_STREAM_STATE)                                          \
+  V(NGHTTP2_ERR_DEFERRED_DATA_EXIST)                                           \
+  V(NGHTTP2_ERR_START_STREAM_NOT_ALLOWED)                                      \
+  V(NGHTTP2_ERR_GOAWAY_ALREADY_SENT)                                           \
+  V(NGHTTP2_ERR_INVALID_HEADER_BLOCK)                                          \
+  V(NGHTTP2_ERR_INVALID_STATE)                                                 \
+  V(NGHTTP2_ERR_TEMPORAL_CALLBACK_FAILURE)                                     \
+  V(NGHTTP2_ERR_FRAME_SIZE_ERROR)                                              \
+  V(NGHTTP2_ERR_HEADER_COMP)                                                   \
+  V(NGHTTP2_ERR_FLOW_CONTROL)                                                  \
+  V(NGHTTP2_ERR_INSUFF_BUFSIZE)                                                \
+  V(NGHTTP2_ERR_PAUSE)                                                         \
+  V(NGHTTP2_ERR_TOO_MANY_INFLIGHT_SETTINGS)                                    \
+  V(NGHTTP2_ERR_PUSH_DISABLED)                                                 \
+  V(NGHTTP2_ERR_DATA_EXIST)                                                    \
+  V(NGHTTP2_ERR_SESSION_CLOSING)                                               \
+  V(NGHTTP2_ERR_HTTP_HEADER)                                                   \
+  V(NGHTTP2_ERR_HTTP_MESSAGING)                                                \
+  V(NGHTTP2_ERR_REFUSED_STREAM)                                                \
+  V(NGHTTP2_ERR_INTERNAL)                                                      \
+  V(NGHTTP2_ERR_CANCEL)                                                        \
+  V(NGHTTP2_ERR_FATAL)                                                         \
+  V(NGHTTP2_ERR_NOMEM)                                                         \
+  V(NGHTTP2_ERR_CALLBACK_FAILURE)                                              \
+  V(NGHTTP2_ERR_BAD_CLIENT_MAGIC)                                              \
+  V(NGHTTP2_ERR_FLOODED)
+
+const char* nghttp2_errname(int rv) {
+  switch (rv) {
+#define V(code) case code: return #code;
+  NGHTTP2_ERROR_CODES(V)
+#undef V
+    default:
+      return "NGHTTP2_UNKNOWN_ERROR";
+  }
+}
 
 }  // namespace http2
 }  // namespace node
