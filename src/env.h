@@ -140,6 +140,7 @@ namespace node {
   V(netmask_string, "netmask")                                                \
   V(nice_string, "nice")                                                      \
   V(nsname_string, "nsname")                                                  \
+  V(nexttick_string, "nextTick")                                              \
   V(ocsp_request_string, "OCSPRequest")                                       \
   V(onchange_string, "onchange")                                              \
   V(onclienthello_string, "onclienthello")                                    \
@@ -242,6 +243,8 @@ namespace node {
   V(generic_internal_field_template, v8::ObjectTemplate)                      \
   V(http2settings_constructor_template, v8::FunctionTemplate)                 \
   V(http2stream_constructor_template, v8::FunctionTemplate)                   \
+  V(http2headers_constructor_template, v8::FunctionTemplate)                  \
+  V(http2dataprovider_constructor_template, v8::FunctionTemplate)             \
   V(jsstream_constructor_template, v8::FunctionTemplate)                      \
   V(module_load_list_array, v8::Array)                                        \
   V(pipe_constructor_template, v8::FunctionTemplate)                          \

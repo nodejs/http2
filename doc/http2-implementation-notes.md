@@ -96,20 +96,6 @@ Encapsulates an individual HTTP/2 header.
 
 ## class HTTP2.Http2Session : EventEmitter {}
 
-### Constructor: `new HTTP2.Http2Session(type, options)`
-
-* `type` {Number}`HTTP2.constants.SESSION_TYPE_SERVER` or
-  `HTTP2.constants.SESSION_TYPE_CLIENT`
-* `options` {Object}
-  * `maxDeflateDynamicTableSize` {Number}
-  * `maxReservedRemoteStreams` {Number}
-  * `maxSendHeaderBlockLength` {Number}
-  * `noAutoPingAck` {Boolean}
-  * `noAutoWindowUpdate` {Boolean}
-  * `noHttpMessaging` {Boolean}
-  * `noRecvClientMagic` {Boolean}
-  * `peerMaxConcurrentStreams` {Number}
-
 ### Event: `'send'`
 
 The `'send'` event is emitted whenever the `HTTP2.Http2Session` instance has
@@ -209,9 +195,9 @@ session.on('data-chunk', (stream, chunk) => {
 });
 ```
 
-### Event: `'data-end'`
+### Event: `'data'`
 
-The `'data-end'` event is emitted whenever a complete DATA frame has been
+The `'data'` event is emitted whenever a complete DATA frame has been
 processed. This event will follow zero-or-more `'data-chunk'` events. The
 callback is invoked with three arguments: an `Http2Stream` object representing
 the associated HTTP/2 stream, a boolean indicating whether or not the DATA
@@ -296,6 +282,7 @@ The `'rst-stream'` event is emitted when a RST-STREAM frame is received.
 ### Property: `response.socket` (Read-only)
 ### Property: `response.finished` (Read-only)
 ### Property: `response.headersSent` (Read-only)
+### Property: `response.pushSupported` (Read-only)
 ### Property: `response.statusCode` (Read-Write)
 ### Method: `response.setHeader(name, value)`
 ### Method: `response.setTrailer(name, value)`
@@ -310,10 +297,31 @@ The `'rst-stream'` event is emitted when a RST-STREAM frame is received.
 ### Method: `response.writeHeader(statusCode, headers)`
 ### Method: `response.write()`
 ### Method: `response.end()`
+### Method: `response.createPushResponse()`
 
-## HTTP2.createServerSession()
+## HTTP2.createServerSession(options)
 
-## HTTP2.createClientSession()
+* `options` {Object}
+  * `maxDeflateDynamicTableSize` {Number}
+  * `maxReservedRemoteStreams` {Number}
+  * `maxSendHeaderBlockLength` {Number}
+  * `noAutoPingAck` {Boolean}
+  * `noAutoWindowUpdate` {Boolean}
+  * `noHttpMessaging` {Boolean}
+  * `noRecvClientMagic` {Boolean}
+  * `peerMaxConcurrentStreams` {Number}
+
+## HTTP2.createClientSession(options)
+
+* `options` {Object}
+  * `maxDeflateDynamicTableSize` {Number}
+  * `maxReservedRemoteStreams` {Number}
+  * `maxSendHeaderBlockLength` {Number}
+  * `noAutoPingAck` {Boolean}
+  * `noAutoWindowUpdate` {Boolean}
+  * `noHttpMessaging` {Boolean}
+  * `noRecvClientMagic` {Boolean}
+  * `peerMaxConcurrentStreams` {Number}
 
 ## HTTP2.createServer(options, callback)
 
