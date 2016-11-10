@@ -2,6 +2,7 @@
 #include "node_buffer.h"
 #include "nghttp2/nghttp2.h"
 #include "node_http2.h"
+#include "stream_base.h"
 
 #include "async-wrap.h"
 #include "async-wrap-inl.h"
@@ -9,6 +10,7 @@
 #include "env-inl.h"
 #include "util.h"
 #include "util-inl.h"
+#include "v8-profiler.h"
 #include "v8.h"
 
 #include <vector>
@@ -16,6 +18,7 @@
 namespace node {
 
 using v8::Context;
+using v8::External;
 using v8::Function;
 using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
@@ -24,6 +27,7 @@ using v8::HandleScope;
 using v8::Integer;
 using v8::Isolate;
 using v8::Local;
+using v8::Map;
 using v8::MaybeLocal;
 using v8::Name;
 using v8::Number;
@@ -501,6 +505,7 @@ void Http2Stream::ResumeData(const FunctionCallbackInfo<Value>& args) {
   SESSION_OR_RETURN(session);
   if (stream->IsLocalOpen())
     nghttp2_session_resume_data(**session, stream->id());
+  nghttp2_session_send(**session);
 }
 
 void Http2Stream::SendContinue(const FunctionCallbackInfo<Value>& args) {
@@ -635,7 +640,8 @@ void Http2Stream::SendPushPromise(const FunctionCallbackInfo<Value>& args) {
 Http2Session::Http2Session(Environment* env,
                            Local<Object> wrap,
                            enum http2_session_type type,
-                           Local<Value> options) :
+                           Local<Value> options,
+                           Local<Value> external) :
                            AsyncWrap(env, wrap,
                                      AsyncWrap::PROVIDER_HTTP2SESSION),
                            type_(type) {
@@ -663,8 +669,71 @@ Http2Session::Http2Session(Environment* env,
   }
   nghttp2_session_callbacks_del(cb);
   root_ = create_stream(env, this, 0);
+
+  if (!external.IsEmpty() && external->IsExternal()) {
+    Consume(external);
+  }
 }
 
+static const size_t kAllocBufferSize = 64 * 1024;
+
+void Http2Session::OnAllocImpl(size_t suggested_size,
+                               uv_buf_t* buf,
+                               void* ctx) {
+  Http2Session* session = static_cast<Http2Session*>(ctx);
+  Environment* env = session->env();
+
+  if (env->http2_socket_buffer() == nullptr)
+    env->set_http2_socket_buffer(new char[kAllocBufferSize]);
+
+  buf->base = env->http2_socket_buffer();
+  buf->len = kAllocBufferSize;
+}
+
+
+void Http2Session::OnReadImpl(ssize_t nread,
+                              const uv_buf_t* buf,
+                              uv_handle_type pending,
+                              void* ctx) {
+  Http2Session* session = static_cast<Http2Session*>(ctx);
+
+  if (nread < 0) {
+    uv_buf_t tmp_buf;
+    tmp_buf.base = nullptr;
+    tmp_buf.len = 0;
+    session->prev_read_cb_.fn(nread,
+                              &tmp_buf,
+                              pending,
+                              session->prev_read_cb_.ctx);
+    return;
+  }
+  nghttp2_session_mem_recv(**session,
+                           reinterpret_cast<const uint8_t*>(buf->base),
+                           nread);
+  if (nghttp2_session_want_write(**session))
+    nghttp2_session_send(**session);
+}
+
+void Http2Session::Unconsume() {
+  if (prev_alloc_cb_.is_empty())
+    return;
+  prev_alloc_cb_.clear();
+  prev_read_cb_.clear();
+}
+
+void Http2Session::Consume(Local<Value> external) {
+  Local<External> stream_obj = external.As<External>();
+  StreamBase* stream = static_cast<StreamBase*>(stream_obj->Value());
+  CHECK_NE(stream, nullptr);
+
+  stream->Consume();
+
+  prev_alloc_cb_ = stream->alloc_cb();
+  prev_read_cb_ = stream->read_cb();
+
+  stream->set_alloc_cb({ Http2Session::OnAllocImpl, this });
+  stream->set_read_cb({ Http2Session::OnReadImpl, this });
+}
 
 void Http2Session::GetUid(Local<String> property,
                           const PropertyCallbackInfo<Value>& args) {
@@ -783,9 +852,12 @@ int Http2Session::on_headers_frame(Http2Session* session,
   Environment* env = session->env();
   HandleScope handle_scope(env->isolate());
   Context::Scope context_scope(env->context());
-  EMIT(env, session, "headers-complete",
+  EMIT(env, session, "headers",
        stream->object(),
-       Integer::NewFromUnsigned(env->isolate(), hd.flags));
+       Integer::NewFromUnsigned(env->isolate(), hd.flags),
+       stream->GetHeaders(),
+       Integer::NewFromUnsigned(env->isolate(), stream->GetHeadersCategory()));
+  stream->ClearHeaders();
   return 0;
 }
 
@@ -857,23 +929,11 @@ int Http2Session::on_header(nghttp2_session *session,
                             size_t valuelen,
                             uint8_t flags,
                             void *user_data) {
-  Http2Session* session_obj =
-    static_cast<Http2Session*>(user_data);
-  Environment* env = session_obj->env();
-  Isolate* isolate = env->isolate();
-  HandleScope handle_scope(env->isolate());
-  Context::Scope context_scope(env->context());
-
-  Http2Stream* stream_data =
+  Http2Stream* stream =
       static_cast<Http2Stream*>(
         nghttp2_session_get_stream_user_data(session, frame->hd.stream_id));
-  CHECK(stream_data != nullptr);
-
-  EMIT(env, session_obj, "header",
-       stream_data->object(),
-       OneByteString(isolate, name, namelen),
-       OneByteString(isolate, value, valuelen));
-
+  CHECK(stream != nullptr);
+  stream->SetHeader(name, namelen, value, valuelen);
   return 0;
 }
 
@@ -884,20 +944,14 @@ int Http2Session::on_begin_headers(nghttp2_session* session,
   Http2Session* session_obj =
     static_cast<Http2Session*>(user_data);
   Environment* env = session_obj->env();
-  HandleScope handle_scope(env->isolate());
-  Context::Scope context_scope(env->context());
-
-  Http2Stream* stream_data =
+  Http2Stream* stream =
       static_cast<Http2Stream*>(
         nghttp2_session_get_stream_user_data(session, frame->hd.stream_id));
-  if (stream_data == nullptr) {
-    stream_data = create_stream(env, session_obj, frame->hd.stream_id);
+  if (stream == nullptr) {
+    stream = create_stream(env, session_obj, frame->hd.stream_id);
   }
-
-  EMIT(env, session_obj, "begin-headers",
-       stream_data->object(),
-       Integer::NewFromUnsigned(env->isolate(), frame->headers.cat));
-
+  CHECK(stream != nullptr);
+  stream->SetHeaders(frame->headers.cat);
   return 0;
 }
 
@@ -954,7 +1008,7 @@ void Http2Session::New(const FunctionCallbackInfo<Value>& args) {
   if (type != SESSION_TYPE_SERVER && type != SESSION_TYPE_CLIENT)
     return env->ThrowTypeError("Invalid HTTP/2 session type");
 
-  new Http2Session(env, args.This(), type, args[1]);
+  new Http2Session(env, args.This(), type, args[1], args[2]);
 }
 
 
@@ -1166,6 +1220,7 @@ void Http2Session::Destroy(const FunctionCallbackInfo<Value>& args) {
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
   SESSION_OR_RETURN(session);
   EMIT0(session->env(), session, "destroy");
+  session->Unconsume();
   ClearWrap(session->object());
   session->persistent().Reset();
   delete session;
@@ -1239,6 +1294,7 @@ void Http2Session::ReceiveData(const FunctionCallbackInfo<Value>& args) {
   args.GetReturnValue().Set(Integer::NewFromUnsigned(env->isolate(), readlen));
   if (!session->WantReadOrWrite())
     EMIT0(env, session, "canClose");
+  nghttp2_session_send(**session);
 }
 
 
