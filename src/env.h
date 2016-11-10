@@ -477,6 +477,8 @@ class Environment {
 
   inline char* http_parser_buffer() const;
   inline void set_http_parser_buffer(char* buffer);
+  inline char* http2_socket_buffer() const;
+  inline void set_http2_socket_buffer(char* buffer);
 
   inline void ThrowError(const char* errmsg);
   inline void ThrowTypeError(const char* errmsg);
@@ -583,6 +585,7 @@ class Environment {
   uint32_t* heap_space_statistics_buffer_ = nullptr;
 
   char* http_parser_buffer_;
+  char* http2_socket_buffer_;
 
 #define V(PropertyName, TypeName)                                             \
   v8::Persistent<TypeName> PropertyName ## _;
