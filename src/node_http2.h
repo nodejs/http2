@@ -8,6 +8,7 @@
 
 #include "env.h"
 #include "env-inl.h"
+#include "stream_base.h"
 #include "util.h"
 #include "util-inl.h"
 #include "v8.h"
@@ -18,11 +19,17 @@
 namespace node {
 namespace http2 {
 
+using v8::Context;
+using v8::EscapableHandleScope;
 using v8::Exception;
+using v8::External;
+using v8::Function;
 using v8::FunctionCallbackInfo;
 using v8::HandleScope;
 using v8::Integer;
+using v8::Isolate;
 using v8::Local;
+using v8::Map;
 using v8::Name;
 using v8::Object;
 using v8::PropertyCallbackInfo;
@@ -131,7 +138,13 @@ enum http2_data_flags {
       FIXED_ONE_BYTE_STRING(env->isolate(), event),                           \
       __VA_ARGS__                                                             \
     };                                                                        \
-    obj->MakeCallback(cb.As<Function>(), arraysize(argv), argv);              \
+    v8::TryCatch try_catch(env->isolate());                                   \
+    Local<Value> ret = obj->MakeCallback(cb.As<Function>(),                   \
+                                         arraysize(argv), argv);              \
+    if (ret.IsEmpty()) {                                                      \
+      ClearFatalExceptionHandlers(env);                                       \
+      FatalException(env->isolate(), try_catch);                              \
+    }                                                                         \
   } while (0)
 
 #define EMIT0(env, obj, event)                                                \
@@ -142,7 +155,13 @@ enum http2_data_flags {
     Local<Value> argv[] {                                                     \
       FIXED_ONE_BYTE_STRING(env->isolate(), event)                            \
     };                                                                        \
-    obj->MakeCallback(cb.As<Function>(), arraysize(argv), argv);              \
+    v8::TryCatch try_catch(env->isolate());                                   \
+    Local<Value> ret = obj->MakeCallback(cb.As<Function>(),                   \
+                                         arraysize(argv), argv);              \
+    if (ret.IsEmpty()) {                                                      \
+      ClearFatalExceptionHandlers(env);                                       \
+      FatalException(env->isolate(), try_catch);                              \
+    }                                                                         \
   } while (0)
 
 #define EMIT_ERROR_IF_FAIL(env, obj, rv)                                      \
@@ -519,6 +538,48 @@ class Http2Stream : public AsyncWrap {
     return sizeof(*this);
   }
 
+  void SetHeaders(nghttp2_headers_category category) {
+    CHECK(headers_.IsEmpty());
+    EscapableHandleScope scope(env()->isolate());
+    headers_ = scope.Escape(Map::New(env()->isolate()));
+    headers_category_ = category;
+  }
+
+  void SetHeader(const uint8_t *name,
+                 size_t namelen,
+                 const uint8_t *value,
+                 size_t valuelen) {
+    CHECK(!headers_.IsEmpty());
+    Environment* env = this->env();
+    Local<Context> context = env->context();
+    Local<String> key = OneByteString(env->isolate(), name, namelen);
+    Local<String> val = OneByteString(env->isolate(), value, valuelen);
+    if (headers_->Has(context, key).FromJust()) {
+      Local<Value> existing = headers_->Get(context, key).ToLocalChecked();
+      if (existing->IsArray()) {
+        Local<Function> fn = env->push_values_to_array_function();
+        Local<Value> argv[] {val};
+        fn->Call(context, existing, 1, argv).ToLocalChecked();
+        return;
+      }
+    }
+    headers_->Set(context, key, val).IsEmpty();
+  }
+
+  nghttp2_headers_category GetHeadersCategory() {
+    return headers_category_;
+  }
+
+  Local<Map> GetHeaders() {
+    return headers_;
+  }
+
+  void ClearHeaders() {
+    headers_.Clear();
+    headers_category_ = static_cast<nghttp2_headers_category>(NULL);
+    CHECK(headers_.IsEmpty());
+  }
+
   Http2Stream(Environment* env,
               Local<Object> wrap,
               Http2Session* session,
@@ -542,6 +603,9 @@ class Http2Stream : public AsyncWrap {
   Http2Stream* next_;
   int32_t stream_id_;
   nghttp2_stream* stream_;
+  Local<Map> headers_;
+  nghttp2_headers_category headers_category_ =
+      static_cast<nghttp2_headers_category>(NULL);
 };
 
 
@@ -637,11 +701,24 @@ class Http2Session : public AsyncWrap {
   Http2Session(Environment* env,
                Local<Object> wrap,
                enum http2_session_type type,
-               Local<Value> options);
+               Local<Value> options,
+               Local<Value> external);
 
   ~Http2Session() override {
     nghttp2_session_del(session_);
   }
+
+  void Unconsume();
+  void Consume(Local<Value> external);
+
+  static void OnAllocImpl(size_t suggested_size,
+                          uv_buf_t* buf,
+                          void* ctx);
+
+  static void OnReadImpl(ssize_t nread,
+                         const uv_buf_t* buf,
+                         uv_handle_type pending,
+                         void* ctx);
 
   static ssize_t send(nghttp2_session* session,
                       const uint8_t* data,
@@ -716,6 +793,8 @@ class Http2Session : public AsyncWrap {
   Http2Stream* root_;
   enum http2_session_type type_;
   nghttp2_session* session_;
+  StreamResource::Callback<StreamResource::AllocCb> prev_alloc_cb_;
+  StreamResource::Callback<StreamResource::ReadCb> prev_read_cb_;
 };
 
 
