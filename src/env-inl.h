@@ -338,7 +338,7 @@ inline char* Environment::http2_socket_buffer() const {
 }
 
 inline void Environment::set_http2_socket_buffer(char* buffer) {
-  CHECK_EQ(http2_socket_buffer_, nullptr); // Should be set only once.
+  CHECK_EQ(http2_socket_buffer_, nullptr);  // Should be set only once.
   http2_socket_buffer_ = buffer;
 }
 
