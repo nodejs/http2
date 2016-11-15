@@ -83,6 +83,7 @@ namespace node {
   V(code_string, "code")                                                      \
   V(cwd_string, "cwd")                                                        \
   V(dest_string, "dest")                                                      \
+  V(destroy_string, "destroy")                                                \
   V(detached_string, "detached")                                              \
   V(disposed_string, "_disposed")                                             \
   V(domain_string, "domain")                                                  \
@@ -111,8 +112,10 @@ namespace node {
   V(file_string, "file")                                                      \
   V(fingerprint_string, "fingerprint")                                        \
   V(flags_string, "flags")                                                    \
+  V(goaway_string, "goaway")                                                  \
   V(gid_string, "gid")                                                        \
   V(handle_string, "handle")                                                  \
+  V(headers_string, "headers")                                                \
   V(heap_total_string, "heapTotal")                                           \
   V(heap_used_string, "heapUsed")                                             \
   V(homedir_string, "homedir")                                                \
@@ -184,6 +187,7 @@ namespace node {
   V(replacement_string, "replacement")                                        \
   V(retry_string, "retry")                                                    \
   V(rss_string, "rss")                                                        \
+  V(rststream_string, "rststream")                                            \
   V(serial_string, "serial")                                                  \
   V(scopeid_string, "scopeid")                                                \
   V(sent_shutdown_string, "sentShutdown")                                     \
@@ -200,6 +204,7 @@ namespace node {
   V(stack_string, "stack")                                                    \
   V(status_string, "status")                                                  \
   V(stdio_string, "stdio")                                                    \
+  V(streamclose_string, "streamClose")                                        \
   V(subject_string, "subject")                                                \
   V(subjectaltname_string, "subjectaltname")                                  \
   V(sys_string, "sys")                                                        \
