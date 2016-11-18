@@ -34,6 +34,7 @@ using v8::Local;
 using v8::Map;
 using v8::Name;
 using v8::Object;
+using v8::Persistent;
 using v8::PropertyCallbackInfo;
 using v8::String;
 using v8::Value;
@@ -214,10 +215,13 @@ class Http2Stream;
 class Http2Priority;
 class Http2Settings;
 
-void DoEmit(AsyncWrap* emitter, Local<Value>* args, size_t count) {
+void DoEmit(AsyncWrap* emitter,
+            Local<String> name,
+            Local<Value>* args,
+            size_t count) {
   Environment* env = emitter->env();
   Environment::AsyncCallbackScope callback_scope(env);
-  Local<Value> cb = emitter->object()->Get(env->emit_string());
+  Local<Value> cb = emitter->object()->Get(name);
   CHECK(cb->IsFunction());
   v8::TryCatch try_catch(env->isolate());
   Local<Value> ret = emitter->MakeCallback(cb.As<Function>(), count, args);
@@ -241,7 +245,17 @@ void DoEmitErrorIfFail(AsyncWrap* emitter, int rv) {
     e->Set(env->errno_string(), Integer::New(isolate, rv));
     e->Set(env->code_string(), OneByteString(isolate, nghttp2_errname(rv)));
     Local<Value> argv[] { env->error_string(), e };
-    DoEmit(emitter, argv, arraysize(argv));
+
+    Environment::AsyncCallbackScope callback_scope(env);
+    Local<Value> cb = emitter->object()->Get(env->onerror_string());
+    CHECK(cb->IsFunction());
+    v8::TryCatch try_catch(env->isolate());
+    Local<Value> ret =
+        emitter->MakeCallback(cb.As<Function>(), arraysize(argv), argv);
+    if (ret.IsEmpty()) {
+      ClearFatalExceptionHandlers(env);
+      FatalException(env->isolate(), try_catch);
+    }
   }
 }
 
@@ -359,8 +373,6 @@ class Http2Settings : public BaseObject {
   }
 
  private:
-  friend class Http2Session;
-
   void Set(int32_t id, uint32_t value) {
     settings_[id] = value;
   }
@@ -404,36 +416,26 @@ class Http2Priority {
 
 class Http2Header : public nghttp2_nv {
  public:
-  Http2Header(const Http2Header& other) {
-    this->name = Malloc<uint8_t>(other.namelen);
-    this->value = Malloc<uint8_t>(other.valuelen);
-    this->namelen = other.namelen;
-    this->valuelen = other.valuelen;
-    this->flags = other.flags;
-    memcpy(this->name, other.name, namelen);
-    memcpy(this->value, other.value, valuelen);
-  }
-
-  Http2Header(const char* name,
-              const char* value,
-              size_t namelen,
-              size_t valuelen,
+  Http2Header(const char* name_,
+              const char* value_,
+              size_t namelen_,
+              size_t valuelen_,
               bool noindex = false) {
-    uint8_t flags = NGHTTP2_NV_FLAG_NO_COPY_NAME |
-                    NGHTTP2_NV_FLAG_NO_COPY_VALUE;
+    flags = NGHTTP2_NV_FLAG_NONE;
+    // flags = NGHTTP2_NV_FLAG_NO_COPY_NAME |
+    //         NGHTTP2_NV_FLAG_NO_COPY_VALUE;
     if (noindex)
       flags |= NGHTTP2_NV_FLAG_NO_INDEX;
-    this->name = Malloc<uint8_t>(namelen);
-    this->value = Malloc<uint8_t>(valuelen);
-    this->namelen = namelen;
-    this->valuelen = valuelen;
-    this->flags = flags;
-    memcpy(this->name, name, namelen);
-    memcpy(this->value, value, valuelen);
+    name = Malloc<uint8_t>(namelen_);
+    value = Malloc<uint8_t>(valuelen_);
+    namelen = namelen_;
+    valuelen = valuelen_;
+    memcpy(this->name, name_, namelen);
+    memcpy(this->value, value_, valuelen);
   }
   ~Http2Header() {
-    free(this->name);
-    free(this->value);
+    free(name);
+    free(value);
   }
 };
 
@@ -473,7 +475,9 @@ class Http2Headers : public BaseObject {
     uint8_t flags = NGHTTP2_NV_FLAG_NONE;
     if (noindex)
       flags |= NGHTTP2_NV_FLAG_NO_INDEX;
-    entries_.push_back({name, value, nlen, vlen, noindex});
+    const Http2Header* header =
+      new Http2Header(name, value, nlen, vlen, noindex);
+    entries_.push_back(*header);
   }
 
   void Reserve(int inc) {
@@ -496,16 +500,36 @@ class Http2Stream : public AsyncWrap, public StreamBase {
       nghttp2_session_get_stream_user_data(session, id));
   }
 
-  Http2Stream(Environment* env,
-              Local<Object> wrap,
-              Http2Session* session,
-              int32_t stream_id);
+  Http2Stream(Environment* env, Local<Object> wrap) :
+              AsyncWrap(env, wrap, AsyncWrap::PROVIDER_HTTP2STREAM),
+              StreamBase(env) {
+    Wrap(object(), this);
+    str_in_ = NodeBIO::New();
+    str_out_ = NodeBIO::New();
+    NodeBIO::FromBIO(str_in_)->AssignEnvironment(env);
+    NodeBIO::FromBIO(str_out_)->AssignEnvironment(env);
+    provider_.read_callback = Http2Stream::on_read;
+    provider_.source.ptr = this;
+    set_alloc_cb({ OnAllocSelf, this });
+    set_read_cb({ OnReadSelf, this });
+    outgoing_headers_.reserve(100);
+    outgoing_trailers_.reserve(100);
+  }
 
   ~Http2Stream() override {
-    Detach();
+    Reset();
+    ClearWrap(object());
+    persistent().Reset();
+    if (!headers_.IsEmpty())
+      headers_.Reset();
     str_in_ = nullptr;
     str_out_ = nullptr;
   }
+
+  void Reset();
+  void Initialize(Http2Session* session,
+                  int32_t id,
+                  nghttp2_headers_category category);
 
   AsyncWrap* GetAsyncWrap() override {
     return static_cast<AsyncWrap*>(this);
@@ -516,9 +540,6 @@ class Http2Stream : public AsyncWrap, public StreamBase {
   }
 
   nghttp2_stream* operator*();
-
-  // Detaches the Http2Stream instance from the underlying Http2Session
-  void Detach();
 
   // StreamBase::IsAlive
   bool IsAlive() override;
@@ -532,54 +553,24 @@ class Http2Stream : public AsyncWrap, public StreamBase {
   // StreamBase::ReadStop
   int ReadStop() override;
 
-  // StreamBase::DoShutdown - Shutdown in the context of an Http2Stream
-  // *only* terminates the Writable end of the StreamBase. It is the
-  // responsibility of the Http2Session/nghttp2_session to manage the
-  // lifecycle of the underlying nghttp2_stream.
-  int DoShutdown(ShutdownWrap* req_wrap) override;
-
   // StreamBase::DoWrite - Write data to the outbound str_out_ NodeBIO
-  int DoWrite(WriteWrap* w,
-              uv_buf_t* bufs,
-              size_t count,
+  int DoWrite(WriteWrap* w, uv_buf_t* bufs, size_t count,
               uv_stream_t* send_handle) override;
 
   void EmitPendingData();
   void ReceiveData(const uint8_t* data, size_t len);
 
-  static void OnAllocSelf(size_t suggested_size,
-                          uv_buf_t* buf, void* ctx);
-  static void OnReadSelf(ssize_t nread,
-                         const uv_buf_t* buf,
-                         uv_handle_type pending,
-                         void* ctx);
-
-  // JS Properties
-  static void GetUid(Local<String> property,
-                     const PropertyCallbackInfo<Value>& args);
-  static void GetID(Local<String> property,
-                    const PropertyCallbackInfo<Value>& args);
-  static void GetSession(Local<String> property,
-                        const PropertyCallbackInfo<Value>& args);
-  static void GetState(Local<String> property,
-                       const PropertyCallbackInfo<Value>& args);
-  static void GetWeight(Local<String> property,
-                        const PropertyCallbackInfo<Value>& args);
-  static void GetSumDependencyWeight(Local<String> property,
-                                     const PropertyCallbackInfo<Value>& args);
-  static void GetLocalWindowSize(Local<String> property,
-                                 const PropertyCallbackInfo<Value>& args);
-  static void GetStreamLocalClose(Local<String> property,
-                                  const PropertyCallbackInfo<Value>& args);
-  static void GetStreamRemoteClose(Local<String> property,
-                                   const PropertyCallbackInfo<Value>& args);
-  static void SetLocalWindowSize(Local<String> property,
-                                 Local<Value> value,
-                                 const PropertyCallbackInfo<void>& args);
+  static void OnAllocSelf(size_t suggested_size, uv_buf_t* buf, void* ctx);
+  static void OnReadSelf(ssize_t nread, const uv_buf_t* buf,
+                         uv_handle_type pending, void* ctx);
 
   // JS Methods
-  static void Dispose(const FunctionCallbackInfo<Value>& args);
   static void New(const FunctionCallbackInfo<Value>& args);
+  static void Reinitialize(const FunctionCallbackInfo<Value>& args);
+  static void Close(const FunctionCallbackInfo<Value>& args);
+  static void Reset(const FunctionCallbackInfo<Value>& args);
+  static void FinishedWriting(const FunctionCallbackInfo<Value>& args);
+
   static void ChangeStreamPriority(const FunctionCallbackInfo<Value>& args);
   static void Respond(const FunctionCallbackInfo<Value>& args);
   static void ResumeData(const FunctionCallbackInfo<Value>& args);
@@ -589,6 +580,17 @@ class Http2Stream : public AsyncWrap, public StreamBase {
   static void SendPushPromise(const FunctionCallbackInfo<Value>& args);
   static void AddHeader(const FunctionCallbackInfo<Value>& args);
   static void AddTrailer(const FunctionCallbackInfo<Value>& args);
+  static void GetId(const FunctionCallbackInfo<Value>& args);
+  static void GetState(const FunctionCallbackInfo<Value>& args);
+  static void SetLocalWindowSize(const FunctionCallbackInfo<Value>& args);
+
+  int DoShutdown(ShutdownWrap* req_wrap) override {
+    HandleScope scope(req_wrap->env()->isolate());
+    Context::Scope context_scope(req_wrap->env()->context());
+    req_wrap->Dispatched();
+    req_wrap->Done(0);
+    return 0;
+  }
 
   // Tell nghttp2 to resume sending DATA frames. If
   // the Http2Stream instance is detached, this is
@@ -617,28 +619,26 @@ class Http2Stream : public AsyncWrap, public StreamBase {
   // whenever the header block is complete and passed off to the
   // JS callback.
   void SetHeaders(nghttp2_headers_category category) {
-    CHECK(headers_.IsEmpty());
-    Isolate* isolate = env()->isolate();
-    EscapableHandleScope scope(isolate);
-    headers_ = scope.Escape(Map::New(isolate));
+    // CHECK(headers_.IsEmpty());
     headers_category_ = category;
+    Isolate* isolate = env()->isolate();
+    headers_.Reset(isolate, Map::New(isolate));
   }
 
   // Set an individual header name+value pair in the headers_ Map
-  void SetHeader(const uint8_t *name,
-                 size_t namelen,
-                 const uint8_t *value,
-                 size_t valuelen) {
-    CHECK(!headers_.IsEmpty());
+  void SetHeader(const uint8_t *name, size_t namelen,
+                 const uint8_t *value, size_t valuelen) {
     Environment* env = this->env();
     Isolate* isolate = env->isolate();
+    CHECK(!headers_.IsEmpty());
+    Local<Map> headers = PersistentToLocal(isolate, headers_);
     Local<Context> context = env->context();
     Local<String> key = OneByteString(isolate, name, namelen);
     Local<String> val = OneByteString(isolate, value, valuelen);
     // If a header with the same name has already been set, then
     // change the value to an array if it hasn't been changed already.
-    if (headers_->Has(context, key).FromJust()) {
-      Local<Value> existing = headers_->Get(context, key).ToLocalChecked();
+    if (headers->Has(context, key).FromJust()) {
+      Local<Value> existing = headers->Get(context, key).ToLocalChecked();
       if (existing->IsArray()) {
         Local<Function> fn = env->push_values_to_array_function();
         Local<Value> argv[] {val};
@@ -646,7 +646,7 @@ class Http2Stream : public AsyncWrap, public StreamBase {
         return;
       }
     }
-    headers_->Set(context, key, val).IsEmpty();
+    headers->Set(context, key, val).IsEmpty();
   }
 
   // Get the type of headers
@@ -656,13 +656,13 @@ class Http2Stream : public AsyncWrap, public StreamBase {
 
   // Return the current set of headers_
   Local<Map> GetHeaders() {
-    return headers_;
+    return PersistentToLocal(env()->isolate(), headers_);
   }
 
   // Clear the headers Local pointer. The pointer had to have
   // been previously handed off.
   void ClearHeaders() {
-    headers_.Clear();
+    headers_.Reset();
     headers_category_ = static_cast<nghttp2_headers_category>(NULL);
     CHECK(headers_.IsEmpty());
   }
@@ -693,32 +693,23 @@ class Http2Stream : public AsyncWrap, public StreamBase {
   }
 
   // Adds an *Outgoing* Header.
-  void AddHeader(const char* name,
-                 const char* value,
-                 size_t nlen,
-                 size_t vlen,
-                 bool noindex = false) {
-    uint8_t flags = NGHTTP2_NV_FLAG_NONE;
-    if (noindex)
-      flags |= NGHTTP2_NV_FLAG_NO_INDEX;
+  void AddHeader(const char* name, const char* value,
+                 size_t nlen, size_t vlen, bool noindex = false) {
+    const Http2Header* header =
+      new Http2Header(name, value, nlen, vlen, noindex);
     if (strncmp(name, ":", 1) == 0) {
-      outgoing_headers_.emplace(outgoing_headers_.begin(),
-                                name, value, nlen, vlen, noindex);
+      outgoing_headers_.insert(outgoing_headers_.begin(), *header);
     } else {
-      outgoing_headers_.push_back({name, value, nlen, vlen, noindex});
+      outgoing_headers_.push_back(*header);
     }
   }
 
   // Adds an *Outgoing* Trailer.
-  void AddTrailer(const char* name,
-                 const char* value,
-                 size_t nlen,
-                 size_t vlen,
-                 bool noindex = false) {
-    uint8_t flags = NGHTTP2_NV_FLAG_NONE;
-    if (noindex)
-      flags |= NGHTTP2_NV_FLAG_NO_INDEX;
-    outgoing_trailers_.push_back({name, value, nlen, vlen, noindex});
+  void AddTrailer(const char* name, const char* value,
+                 size_t nlen, size_t vlen, bool noindex = false) {
+    const Http2Header* header =
+      new Http2Header(name, value, nlen, vlen, noindex);
+    outgoing_trailers_.push_back(*header);
   }
 
   // Returns the array of Outgoing Headers from the vector
@@ -742,19 +733,7 @@ class Http2Stream : public AsyncWrap, public StreamBase {
   }
 
  private:
-  friend class Http2Session;
-
-  void Emit(Local<Value>* args, size_t count) {
-    DoEmit(this, args, count);
-  }
-
-  void EmitErrorIfFail(int rv) {
-    DoEmitErrorIfFail(this, rv);
-  }
-
-  bool detached_ = false;
   bool writable_ = true;
-
   bool reading_ = false;
   nghttp2_data_provider provider_;
   BIO* str_in_;
@@ -767,7 +746,7 @@ class Http2Stream : public AsyncWrap, public StreamBase {
   std::vector<Http2Header> outgoing_trailers_;
 
   // The temporary incoming headers
-  Local<Map> headers_;
+  Persistent<Map> headers_;
   nghttp2_headers_category headers_category_ =
       static_cast<nghttp2_headers_category>(NULL);
 };
@@ -775,95 +754,40 @@ class Http2Stream : public AsyncWrap, public StreamBase {
 
 class Http2Session : public AsyncWrap {
  public:
-  Http2Session(Environment* env,
-               Local<Object> wrap,
-               enum http2_session_type type,
-               Local<Value> options,
-               Local<Value> external);
-
-  ~Http2Session() override {
-    nghttp2_session_del(session_);
-    stream_ = nullptr;
+  Http2Session(Environment* env, Local<Object> wrap) :
+               AsyncWrap(env, wrap, AsyncWrap::PROVIDER_HTTP2SESSION) {
+    Wrap(object(), this);
+    nghttp2_session_callbacks_new(&cb_);
+#define SET_SESSION_CALLBACK(callbacks, name)                                 \
+    nghttp2_session_callbacks_set_##name##_callback(callbacks, name);
+    SET_SESSION_CALLBACK(cb_, send)
+    SET_SESSION_CALLBACK(cb_, on_frame_recv)
+    SET_SESSION_CALLBACK(cb_, on_stream_close)
+    SET_SESSION_CALLBACK(cb_, on_header)
+    SET_SESSION_CALLBACK(cb_, on_begin_headers)
+    SET_SESSION_CALLBACK(cb_, on_data_chunk_recv)
+    SET_SESSION_CALLBACK(cb_, select_padding);
+#undef SET_SESSION_CALLBACK
   }
 
-  // JS Properties
-  static void GetUid(
-    Local<String> property,
-    const PropertyCallbackInfo<Value>& args);
-  static void GetWantRead(
-    Local<String> property,
-    const PropertyCallbackInfo<Value>& info);
-  static void GetWantWrite(
-    Local<String> property,
-    const PropertyCallbackInfo<Value>& info);
-  static void GetType(
-    Local<String> property,
-    const PropertyCallbackInfo<Value>& info);
-  static void GetNextStreamID(
-    Local<String> property,
-    const PropertyCallbackInfo<Value>& info);
-  static void SetNextStreamID(
-    Local<String> property,
-    Local<Value> value,
-    const PropertyCallbackInfo<void>& info);
-  static void GetEffectiveLocalWindowSize(
-      Local<String> property,
-      const PropertyCallbackInfo<Value>& info);
-  static void GetEffectiveRecvDataLength(
-      Local<String> property,
-      const PropertyCallbackInfo<Value>& info);
-  static void GetLastProcStreamID(
-      Local<String> property,
-      const PropertyCallbackInfo<Value>& info);
-  static void GetOutboundQueueSize(
-      Local<String> property,
-      const PropertyCallbackInfo<Value>& info);
-  static void GetRemoteWindowSize(
-      Local<String> property,
-      const PropertyCallbackInfo<Value>& info);
-  static void GetDeflateDynamicTableSize(
-      Local<String> property,
-      const PropertyCallbackInfo<Value>& info);
-  static void GetInflateDynamicTableSize(
-      Local<String> property,
-      const PropertyCallbackInfo<Value>& info);
-  static void GetLocalWindowSize(
-    Local<String> property,
-    const PropertyCallbackInfo<Value>& info);
-  static void SetLocalWindowSize(
-    Local<String> property,
-    Local<Value> value,
-    const PropertyCallbackInfo<void>& info);
-  static void GetRootStream(
-    Local<String> property,
-    const PropertyCallbackInfo<Value>& info);
-  static void GetRemoteSettings(
-    Local<String> property,
-    const PropertyCallbackInfo<Value>& info);
-  static void GetLocalSettings(
-    Local<String> property,
-    const PropertyCallbackInfo<Value>& info);
-  static void SetLocalSettings(
-    Local<String> property,
-    Local<Value> value,
-    const PropertyCallbackInfo<void>& info);
+  ~Http2Session() override {
+    nghttp2_session_callbacks_del(cb_);
+    Reset();
+  }
 
-  // JS Methods
-  static void New(const FunctionCallbackInfo<Value>& args);
-  static void GracefulTerminate(const FunctionCallbackInfo<Value>& args);
-  static void Destroy(const FunctionCallbackInfo<Value>& args);
-  static void Terminate(const FunctionCallbackInfo<Value>& args);
+  void Initialize(Environment* env,
+                  enum http2_session_type type,
+                  Local<Value> options,
+                  Local<External> external);
+  void Unconsume();
+  void Consume(Local<External> external);
+  void Reset();
 
+  // Native API
   int SendIfNecessary() {
     if (nghttp2_session_want_write(session_))
       return nghttp2_session_send(session_);
     return 0;
-  }
-
-  // True if this Http2Session instance was initialized as a server
-  bool IsServer() {
-    return session_ != nullptr ?
-        nghttp2_session_check_server_session(session_) != 0 : false;
   }
 
   size_t self_size() const override {
@@ -874,42 +798,39 @@ class Http2Session : public AsyncWrap {
     return session_;
   }
 
+  // JS Methods
+  static void New(const FunctionCallbackInfo<Value>& args);
+  static void Reinitialize(const FunctionCallbackInfo<Value>& args);
+  static void Reset(const FunctionCallbackInfo<Value>& args);
+  static void Close(const FunctionCallbackInfo<Value>& args);
+  static void GracefulTerminate(const FunctionCallbackInfo<Value>& args);
+  static void Terminate(const FunctionCallbackInfo<Value>& args);
+  static void GetState(const FunctionCallbackInfo<Value>& args);
+  static void SetNextStreamID(const FunctionCallbackInfo<Value>& args);
+  static void SetLocalWindowSize(const FunctionCallbackInfo<Value>& args);
+  static void GetRemoteSettings(const FunctionCallbackInfo<Value>& args);
+  static void GetLocalSettings(const FunctionCallbackInfo<Value>& args);
+  static void SetLocalSettings(const FunctionCallbackInfo<Value>& args);
+  static void Request(const FunctionCallbackInfo<Value>& args);
+
  private:
   friend class Http2Stream;
-  static Http2Stream* CreateStream(Environment* env,
-                                   Http2Session* session,
-                                   uint32_t stream_id);
-
-  // Removes the pointers from the consumed stream external
-  void Unconsume();
-
-  // Sets this Http2Session instance up as the consumer of
-  // the given stream external.
-  void Consume(Local<Value> external);
 
   // The alloc implementation used by the consumed stream
   // (see the implementation of Consume)
-  static void OnAllocImpl(size_t suggested_size,
-                          uv_buf_t* buf,
-                          void* ctx);
+  static void OnAllocImpl(size_t suggested_size, uv_buf_t* buf, void* ctx);
 
   // The read implementation used by the consumed stream
   // (see the implementation of Consume)
-  static void OnReadImpl(ssize_t nread,
-                         const uv_buf_t* buf,
-                         uv_handle_type pending,
-                         void* ctx);
+  static void OnReadImpl(ssize_t nread, const uv_buf_t* buf,
+                         uv_handle_type pending, void* ctx);
 
   // Called by nghttp2 when there is data to be sent.
-  static ssize_t send(nghttp2_session* session,
-                      const uint8_t* data,
-                      size_t length,
-                      int flags,
-                      void *user_data);
+  static ssize_t send(nghttp2_session* session, const uint8_t* data,
+                      size_t length, int flags, void *user_data);
 
   // Called by nghttp2 when an RST_STREAM frame has been received
-  static int on_rst_stream_frame(Http2Session* session,
-                                 int32_t id,
+  static int on_rst_stream_frame(Http2Session* session, int32_t id,
                                  const nghttp2_frame_hd hd,
                                  const nghttp2_rst_stream rst);
 
@@ -926,7 +847,7 @@ class Http2Session : public AsyncWrap {
 
   // Called when a HEADERS frame has been fully processed
   static int on_headers_frame(Http2Session* session,
-                              Http2Stream* stream,
+                              int32_t id,
                               const nghttp2_frame_hd hd,
                               const nghttp2_headers headers);
 
@@ -958,12 +879,9 @@ class Http2Session : public AsyncWrap {
 
   // Called by nghttp2 multiple times while processing a DATA
   // frame to pass the data on
-  static int on_data_chunk_recv(nghttp2_session* session,
-                                uint8_t flags,
-                                int32_t stream_id,
-                                const uint8_t* data,
-                                size_t len,
-                                void* user_data);
+  static int on_data_chunk_recv(nghttp2_session* session, uint8_t flags,
+                                int32_t stream_id, const uint8_t* data,
+                                size_t len, void* user_data);
 
   // Called by nghttp2 whenever a frame has been sent.
   static int on_frame_send(nghttp2_session* session,
@@ -977,17 +895,8 @@ class Http2Session : public AsyncWrap {
                                 size_t max_payloadlen,
                                 void *user_data);
 
-  // Initializes this Http2Session instance
-  void Init(enum http2_session_type type);
-
-  // True if the Http2Session is expecting a read or write
-  bool WantReadOrWrite() {
-    return nghttp2_session_want_read(session_) != 0 ||
-           nghttp2_session_want_write(session_) != 0;
-  }
-
-  void Emit(Local<Value>* args, size_t count) {
-    DoEmit(this, args, count);
+  void Emit(Local<String> name, Local<Value>* args, size_t count) {
+    DoEmit(this, name, args, count);
   }
 
   void EmitErrorIfFail(int rv) {
@@ -996,10 +905,13 @@ class Http2Session : public AsyncWrap {
 
   enum http2_session_type type_;
   nghttp2_session* session_;
+  nghttp2_session_callbacks* cb_;
   StreamBase* stream_;
   StreamResource::Callback<StreamResource::AllocCb> prev_alloc_cb_;
   StreamResource::Callback<StreamResource::ReadCb> prev_read_cb_;
 };
+
+static const size_t kAllocBufferSize = 64 * 1024;
 
 }  // namespace http2
 }  // namespace node
