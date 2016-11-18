@@ -513,6 +513,10 @@ class Environment {
   inline void SetTemplateMethod(v8::Local<v8::FunctionTemplate> that,
                                 const char* name,
                                 v8::FunctionCallback callback);
+  inline void SetAccessor(v8::Local<v8::FunctionTemplate> that,
+                          const char* name,
+                          v8::AccessorGetterCallback getter,
+                          v8::AccessorSetterCallback setter = 0);
 
   inline v8::Local<v8::Object> NewInternalFieldObject();
 
