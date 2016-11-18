@@ -437,6 +437,17 @@ inline void Environment::SetTemplateMethod(v8::Local<v8::FunctionTemplate> that,
   t->SetClassName(name_string);  // NODE_SET_METHOD() compatibility.
 }
 
+inline void Environment::SetAccessor(v8::Local<v8::FunctionTemplate> that,
+                                     const char* name,
+                                     v8::AccessorGetterCallback getter,
+                                     v8::AccessorSetterCallback setter) {
+  v8::Local<v8::ObjectTemplate> instanceTemplate = that->InstanceTemplate();
+  const v8::NewStringType type = v8::NewStringType::kInternalized;
+  instanceTemplate->SetAccessor(
+      v8::String::NewFromUtf8(isolate(), name, type).ToLocalChecked(),
+      getter, setter, v8::Local<v8::Value>(), v8::DEFAULT, v8::DontDelete);
+}
+
 inline v8::Local<v8::Object> Environment::NewInternalFieldObject() {
   v8::MaybeLocal<v8::Object> m_obj =
       generic_internal_field_template()->NewInstance(context());
