@@ -255,7 +255,7 @@ The `'rst-stream'` event is emitted when a RST-STREAM frame is received.
 
 ### Method: `stream.changeStreamPriority(parent, weight, exclusive)`
 ### Method: `stream.consume(size)`
-### Method: `stream.sendContinuue()`
+### Method: `stream.sendContinue()`
 ### Method: `stream.sendDataFrame(flags, provider)`
 ### Method: `stream.sendPriority(paret weight, exclusive)`
 ### Method: `stream.sendRstStream(code)`
