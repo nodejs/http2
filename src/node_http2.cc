@@ -29,7 +29,6 @@ using v8::Integer;
 using v8::Isolate;
 using v8::Local;
 using v8::Name;
-using v8::Number;
 using v8::Object;
 using v8::PropertyCallbackInfo;
 using v8::String;
@@ -391,6 +390,8 @@ void Http2Stream::OnAllocSelf(size_t suggested_size, uv_buf_t* buf, void* ctx) {
   buf->len = suggested_size;
 }
 
+void Http2Stream::OnAfterWrite(WriteWrap* w, void* ctx) {}
+
 void Http2Stream::OnReadSelf(ssize_t nread,
                              const uv_buf_t* buf,
                              uv_handle_type pending,
@@ -484,15 +485,6 @@ void Http2Stream::SetLocalWindowSize(const FunctionCallbackInfo<Value>& args) {
 
 void Http2Stream::Resume() {;
   nghttp2_session_resume_data(**session_, id());
-  session_->SendIfNecessary();
-}
-
-// Tells nghttp2 to resume sending DATA frames for this stream. This
-// is a non-op if the Http2Stream instance is detached.
-void Http2Stream::ResumeData(const FunctionCallbackInfo<Value>& args) {
-  Http2Stream* stream;
-  ASSIGN_OR_RETURN_UNWRAP(&stream, args.Holder());
-  stream->Resume();
 }
 
 // Send a 100-Continue response. In HTTP/2, a 100-continue is implemented
@@ -627,7 +619,22 @@ void Http2Stream::FinishedWriting(const FunctionCallbackInfo<Value>& args) {
   Http2Stream* stream;
   ASSIGN_OR_RETURN_UNWRAP(&stream, args.Holder());
   stream->writable_ = false;
-  stream->Resume();
+}
+
+int Http2Stream::DoShutdown(ShutdownWrap* req_wrap) {
+  HandleScope scope(req_wrap->env()->isolate());
+  Context::Scope context_scope(req_wrap->env()->context());
+  // DoShutdown is used only to inform the internals
+  // that the writable side of the Duplex has ended.
+  // there still might be data pending in the buffer
+  // to be pushed down, but once that's over, we're
+  // ready to send END_STREAM.
+  writable_ = false;
+  // Just in case we're paused...
+  Resume();
+  req_wrap->Dispatched();
+  req_wrap->Done(0);
+  return 0;
 }
 
 // Called when data has been written on the Writable side of the Http2Stream
@@ -639,28 +646,31 @@ int Http2Stream::DoWrite(WriteWrap* w,
                          size_t count,
                          uv_stream_t* send_handle) {
   // Buffer the data for the Data Provider
+
+  session()->SendIfNecessary();
+
+  if (w->object()->Has(FIXED_ONE_BYTE_STRING(env()->isolate(), "ending")))
+    writable_ = false;
+
   CHECK_EQ(send_handle, nullptr);
-
-  // Simply write to the outgoing buffer. The buffer will be
-  // written out when the data provider callback is invoked.
-  // If the Http2Stream instance has been detached, then it
-  // does not do any good to keep storing the data.
-  // TODO(jasnell): Later could likely make this a CHECK
-
+  size_t len = 0;
   for (size_t i = 0; i < count; i++) {
     // Only attempt to write if the buf is not empty
+    len += bufs[i].len;
     if (bufs[i].len > 0)
       NodeBIO::FromBIO(str_out_)->Write(bufs[i].base, bufs[i].len);
   }
 
-  // Whether detached or not, call dispatch and done.
+  Resume();
+
   w->Dispatched();
   w->Done(0);
   return 0;
 }
 
 bool Http2Stream::IsAlive() {
-  return nghttp2_stream_get_state(**this) != NGHTTP2_STREAM_STATE_CLOSED;
+  return true;
+  //return nghttp2_stream_get_state(**this) != NGHTTP2_STREAM_STATE_CLOSED;
 }
 
 bool Http2Stream::IsClosing() {
@@ -701,24 +711,25 @@ ssize_t Http2Stream::on_read(nghttp2_session* session,
 
   ssize_t amount = bio->Read(reinterpret_cast<char*>(buf), length);
   bool done = false;
+
   if (amount == 0) {
     if (stream->writable_)
       return NGHTTP2_ERR_DEFERRED;
     done = true;
-  } else if (!stream->writable_ && bio->Length() == 0) {
+  } else if (!stream->writable_ && BIO_pending(stream->str_out_) == 0) {
     done = true;
   }
   if (done) {
     *flags |= NGHTTP2_DATA_FLAG_EOF;
-      if (stream->OutgoingTrailersCount() > 0) {
-        // If there are any trailing headers they have to be
-        // queued up to send here.
-        *flags |= NGHTTP2_DATA_FLAG_NO_END_STREAM;
-          nghttp2_submit_trailer(session,
-                                  stream->id(),
-                                  stream->OutgoingTrailers(),
-                                  stream->OutgoingTrailersCount());
-      }
+    if (stream->OutgoingTrailersCount() > 0) {
+      // If there are any trailing headers they have to be
+      // queued up to send here.
+      *flags |= NGHTTP2_DATA_FLAG_NO_END_STREAM;
+        nghttp2_submit_trailer(session,
+                                stream->id(),
+                                stream->OutgoingTrailers(),
+                                stream->OutgoingTrailersCount());
+    }
   }
   return amount;
 }
@@ -798,6 +809,11 @@ void Http2Session::Initialize(Environment* env,
   Consume(external);
 }
 
+void SendOnLoop(uv_idle_t* handle) {
+  SessionIdler* idler = ContainerOf(&SessionIdler::idler_, handle);
+  idler->session()->SendIfNecessary();
+}
+
 // Capture the stream that will this session will use to send and receive data
 void Http2Session::Consume(Local<External> external) {
   CHECK(prev_alloc_cb_.is_empty());
@@ -809,10 +825,29 @@ void Http2Session::Consume(Local<External> external) {
   prev_read_cb_ = stream->read_cb();
   stream->set_alloc_cb({ Http2Session::OnAllocImpl, this });
   stream->set_read_cb({ Http2Session::OnReadImpl, this });
+
+  // Creates an idler handle that will call SendIfNecessary
+  // on every tick of the event loop to ensure that pending
+  // data is flushed to the stream
+  idler_ = new SessionIdler(this);
+  uv_idle_init(env()->event_loop(), idler_->idler());
+  uv_unref(reinterpret_cast<uv_handle_t*>(idler_->idler()));
+  uv_idle_start(idler_->idler(), SendOnLoop);
 }
 
 // Release the captured stream (only if currently captured)
 void Http2Session::Unconsume() {
+  // Tear down the idler
+  if (uv_is_active(reinterpret_cast<uv_handle_t*>(idler_->idler())))
+    uv_idle_stop(idler_->idler());
+  auto OnClose = [](uv_handle_t* handle) {
+    SessionIdler* idler =
+      ContainerOf(&SessionIdler::idler_, reinterpret_cast<uv_idle_t*>(handle));
+    delete idler;
+  };
+  uv_close(reinterpret_cast<uv_handle_t*>(idler_->idler()), OnClose);
+  idler_ = nullptr;
+
   if (prev_alloc_cb_.is_empty())
     return;
   stream_->set_alloc_cb(prev_alloc_cb_);
@@ -882,41 +917,60 @@ void Http2Session::OnReadImpl(ssize_t nread,
   nghttp2_session_mem_recv(**session,
                            reinterpret_cast<const uint8_t*>(buf->base),
                            nread);
-  // Send any pending frame that exist in nghttp2 queue
+  // Send any pending frames that exist in nghttp2 queue
   session->SendIfNecessary();
 }
 
 
-// Called by nghttp2 when there is data to send on this session.
-// This is generally trigged by calling the Http2Session::SendIfNecessary
-// method but there are other APIs that will trigger it also. The data
-// buffer passed in contains the serialized frame data to be sent to
-// the stream.
-ssize_t Http2Session::send(nghttp2_session* session,
-                           const uint8_t* data,
-                           size_t length,
-                           int flags,
-                           void *user_data) {
-  Http2Session* session_obj = static_cast<Http2Session*>(user_data);
-  CHECK_NE(session_obj, nullptr);
-  Environment* env = session_obj->env();
+int Http2Session::SendIfNecessary() {
+  // If the underlying stream is not alive, or there is no
+  // data pending to send, do nothing
+  if (!stream_->IsAlive() || !nghttp2_session_want_write(**this))
+    return 0;
 
-  Local<Object> req_wrap_obj =
-      env->write_wrap_constructor_function()
-          ->NewInstance(env->context()).ToLocalChecked();
-
-  auto cb = [](WriteWrap* req, int status) {};
-  WriteWrap* write_req = WriteWrap::New(env, req_wrap_obj, nullptr, cb);
-
-  uv_buf_t buf[] {
-    uv_buf_init(const_cast<char*>(reinterpret_cast<const char*>(data)), length)
-  };
-
-  if (session_obj->stream_->DoWrite(write_req, buf, arraysize(buf), nullptr)) {
-    // Ignore Errors
-    write_req->Dispose();
+  Environment* env = this->env();
+  BIO* buf = NodeBIO::New();
+  NodeBIO::FromBIO(buf)->AssignEnvironment(env);
+  for (;;) {
+    // Grab as much data as is currently pending in the queue
+    const uint8_t* data = nullptr;
+    ssize_t len = nghttp2_session_mem_send(session_, &data);
+    if (len <= 0)
+      break;
+    NodeBIO::FromBIO(buf)->Write(
+      reinterpret_cast<const char*>(data),
+      len);
   }
-  return length;
+  while (BIO_pending(buf) != 0) {
+    HandleScope scope(env->isolate());
+    // Loop through as long as there is data in the buffer to send
+    Local<Object> req_wrap_obj =
+        env->write_wrap_constructor_function()
+            ->NewInstance(env->context()).ToLocalChecked();
+
+    auto cb = [](WriteWrap* req, int status) {
+      req->Dispose();
+    };
+    WriteWrap* write_req = WriteWrap::New(env, req_wrap_obj, nullptr, cb);
+
+    char* data[kSimultaneousBufferCount];
+    size_t size[arraysize(data)];
+    size_t count = arraysize(data);
+    size_t len = NodeBIO::FromBIO(buf)->PeekMultiple(data, size, &count);
+    CHECK(len != 0 && count != 0);
+
+    uv_buf_t outbuf[arraysize(data)];
+    for (size_t i = 0; i < count; i++)
+      outbuf[i] = uv_buf_init(data[i], size[i]);
+
+    if (stream_->DoWrite(write_req, outbuf, count, nullptr)) {
+      // Ignore Errors
+      write_req->Dispose();
+    }
+    NodeBIO::FromBIO(buf)->Read(nullptr, len);
+  }
+
+  return 0;
 }
 
 // Called whenever an RST_STREAM frame has been received. Results
@@ -1343,7 +1397,6 @@ void Initialize(Local<Object> target,
   env->SetProtoMethod(stream, "changeStreamPriority",
                       Http2Stream::ChangeStreamPriority);
   env->SetProtoMethod(stream, "respond", Http2Stream::Respond);
-  env->SetProtoMethod(stream, "resume", Http2Stream::ResumeData);
   env->SetProtoMethod(stream, "sendContinue", Http2Stream::SendContinue);
   env->SetProtoMethod(stream, "sendPriority", Http2Stream::SendPriority);
   env->SetProtoMethod(stream, "sendRstStream", Http2Stream::SendRstStream);
@@ -1351,8 +1404,7 @@ void Initialize(Local<Object> target,
   env->SetProtoMethod(stream, "addHeader", Http2Stream::AddHeader);
   env->SetProtoMethod(stream, "addTrailer", Http2Stream::AddTrailer);
   env->SetProtoMethod(stream, "finishedWriting", Http2Stream::FinishedWriting);
-  StreamBase::AddMethods<Http2Stream>(env, stream, StreamBase::kFlagHasWritev |
-                                                   StreamBase::kFlagNoShutdown);
+  StreamBase::AddMethods<Http2Stream>(env, stream, StreamBase::kFlagHasWritev);
   env->set_http2stream_object(
     stream->GetFunction()->NewInstance(env->context()).ToLocalChecked());
   target->Set(http2StreamClassName, stream->GetFunction());
