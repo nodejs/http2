@@ -520,10 +520,9 @@ void Http2Stream::Respond(const FunctionCallbackInfo<Value>& args) {
   Http2Session* session = stream->session();
   Isolate* isolate = stream->env()->isolate();
   CHECK(**session);
-  bool nodata = args[0]->BooleanValue();
 
-  if (args[1]->IsArray()) {
-    Local<Array> headers = args[1].As<Array>();
+  if (args[0]->IsArray()) {
+    Local<Array> headers = args[0].As<Array>();
     for (size_t n = 0; n < headers->Length(); n++) {
       Local<Value> item = headers->Get(n);
       if (item->IsArray()) {
@@ -536,7 +535,8 @@ void Http2Stream::Respond(const FunctionCallbackInfo<Value>& args) {
     }
   }
 
-  nghttp2_data_provider* provider = nodata ? nullptr : stream->provider();
+  nghttp2_data_provider* provider =
+      !stream->writable_ ? nullptr : stream->provider();
   int rv = nghttp2_submit_response(**session,
                                    stream->id(),
                                    stream->OutgoingHeaders(),
