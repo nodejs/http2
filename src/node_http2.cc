@@ -18,6 +18,7 @@
 
 namespace node {
 
+using v8::Array;
 using v8::Context;
 using v8::External;
 using v8::Function;
@@ -517,8 +518,24 @@ void Http2Stream::Respond(const FunctionCallbackInfo<Value>& args) {
   Http2Stream* stream;
   ASSIGN_OR_RETURN_UNWRAP(&stream, args.Holder());
   Http2Session* session = stream->session();
+  Isolate* isolate = stream->env()->isolate();
   CHECK(**session);
   bool nodata = args[0]->BooleanValue();
+
+  if (args[1]->IsArray()) {
+    Local<Array> headers = args[1].As<Array>();
+    for (size_t n = 0; n < headers->Length(); n++) {
+      Local<Value> item = headers->Get(n);
+      if (item->IsArray()) {
+        Local<Array> header = item.As<Array>();
+        Utf8Value key(isolate, header->Get(0));
+        Utf8Value value(isolate, header->Get(1));
+        bool noindex = header->Get(2)->BooleanValue();
+        stream->AddHeader(*key, *value, key.length(), value.length(), noindex);
+      }
+    }
+  }
+
   nghttp2_data_provider* provider = nodata ? nullptr : stream->provider();
   int rv = nghttp2_submit_response(**session,
                                    stream->id(),
