@@ -580,7 +580,6 @@ class Http2Stream : public AsyncWrap, public StreamBase {
   static void SendPriority(const FunctionCallbackInfo<Value>& args);
   static void SendRstStream(const FunctionCallbackInfo<Value>& args);
   static void SendPushPromise(const FunctionCallbackInfo<Value>& args);
-  static void AddHeader(const FunctionCallbackInfo<Value>& args);
   static void AddTrailer(const FunctionCallbackInfo<Value>& args);
   static void GetId(const FunctionCallbackInfo<Value>& args);
   static void GetState(const FunctionCallbackInfo<Value>& args);
@@ -688,7 +687,10 @@ class Http2Stream : public AsyncWrap, public StreamBase {
     return &provider_;
   }
 
-  // Adds an *Outgoing* Header.
+  // Adds an *Outgoing* Header. Ensures that http/2 pseudo headers appear
+  // properly at the front of the list. Does not filter out duplicates
+  // TODO(@jasnell): For headers that we know should only be set once,
+  // we should provide some kind of duplication check
   void AddHeader(const char* name, const char* value,
                  size_t nlen, size_t vlen, bool noindex = false) {
     const Http2Header* header =

@@ -510,10 +510,8 @@ void Http2Stream::SendContinue(const FunctionCallbackInfo<Value>& args) {
   session->EmitErrorIfFail(rv);
 }
 
-// Initiate sending a response. Response Headers must have been set
-// before calling. This will result in sending an initial HEADERS
-// frame (or multiple), zero or more DATA frames, and zero or more
-// trailing HEADERS frames.
+// Initiate sending a response. First argument must be an array of header
+// entries, each entry is an array. e.g. [['foo', 'bar'], ['abc', 'xyx', true]]
 void Http2Stream::Respond(const FunctionCallbackInfo<Value>& args) {
   Http2Stream* stream;
   ASSIGN_OR_RETURN_UNWRAP(&stream, args.Holder());
@@ -749,18 +747,6 @@ ssize_t Http2Stream::on_read(nghttp2_session* session,
     }
   }
   return amount;
-}
-
-// Adds an outgoing header. These must be set before the Http2Stream::Respond
-// method is called. Any headers added after that call will not be sent.
-void Http2Stream::AddHeader(const FunctionCallbackInfo<Value>& args) {
-  Environment* env = Environment::GetCurrent(args);
-  Http2Stream* stream;
-  ASSIGN_OR_RETURN_UNWRAP(&stream, args.Holder());
-  Utf8Value key(env->isolate(), args[0]);
-  Utf8Value value(env->isolate(), args[1]);
-  bool noindex = args[2]->BooleanValue();
-  stream->AddHeader(*key, *value, key.length(), value.length(), noindex);
 }
 
 // Adds an outgoing trailer. These must be set before the writable side
@@ -1418,7 +1404,6 @@ void Initialize(Local<Object> target,
   env->SetProtoMethod(stream, "sendPriority", Http2Stream::SendPriority);
   env->SetProtoMethod(stream, "sendRstStream", Http2Stream::SendRstStream);
   env->SetProtoMethod(stream, "sendPushPromise", Http2Stream::SendPushPromise);
-  env->SetProtoMethod(stream, "addHeader", Http2Stream::AddHeader);
   env->SetProtoMethod(stream, "addTrailer", Http2Stream::AddTrailer);
   env->SetProtoMethod(stream, "finishedWriting", Http2Stream::FinishedWriting);
   StreamBase::AddMethods<Http2Stream>(env, stream, StreamBase::kFlagHasWritev);
