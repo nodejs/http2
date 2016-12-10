@@ -214,7 +214,6 @@ class Http2Header;
 class Http2Session;
 class Http2Stream;
 class Http2Priority;
-class Http2Settings;
 
 void DoEmit(AsyncWrap* emitter,
             Local<String> name,
@@ -298,103 +297,6 @@ class Http2Options {
 
  private:
   nghttp2_option* options_;
-};
-
-class Http2Settings : public BaseObject {
- public:
-  Http2Settings(Environment* env,
-                Local<Object> wrap,
-                Http2Session* session = nullptr,
-                bool localSettings = true);
-
-  ~Http2Settings() {}
-
-  static void New(const FunctionCallbackInfo<Value>& args);
-  static void Defaults(const FunctionCallbackInfo<Value>& args);
-  static void Reset(const FunctionCallbackInfo<Value>& args);
-  static void Pack(const FunctionCallbackInfo<Value>& args);
-
-  static void GetHeaderTableSize(
-      Local<String> property,
-      const PropertyCallbackInfo<Value>& info);
-  static void SetHeaderTableSize(
-      Local<String> property,
-      Local<Value> value,
-      const PropertyCallbackInfo<void>& info);
-
-  static void GetEnablePush(
-      Local<String> property,
-      const PropertyCallbackInfo<Value>& info);
-  static void SetEnablePush(
-      Local<String> property,
-      Local<Value> value,
-      const PropertyCallbackInfo<void>& info);
-
-  static void GetMaxConcurrentStreams(
-      Local<String> property,
-      const PropertyCallbackInfo<Value>& info);
-  static void SetMaxConcurrentStreams(
-      Local<String> property,
-      Local<Value> value,
-      const PropertyCallbackInfo<void>& info);
-
-  static void GetInitialWindowSize(
-      Local<String> property,
-      const PropertyCallbackInfo<Value>& info);
-  static void SetInitialWindowSize(
-      Local<String> property,
-      Local<Value> value,
-      const PropertyCallbackInfo<void>& info);
-
-  static void GetMaxFrameSize(
-      Local<String> property,
-      const PropertyCallbackInfo<Value>& info);
-  static void SetMaxFrameSize(
-      Local<String> property,
-      Local<Value> value,
-      const PropertyCallbackInfo<void>& info);
-
-  static void GetMaxHeaderListSize(
-      Local<String> property,
-      const PropertyCallbackInfo<Value>& info);
-  static void SetMaxHeaderListSize(
-      Local<String> property,
-      Local<Value> value,
-      const PropertyCallbackInfo<void>& info);
-
-  void CollectSettings(std::vector<nghttp2_settings_entry>* entries) {
-    for (auto it = settings_.begin();
-         it != settings_.end(); it++) {
-      entries->push_back({it->first, it->second});
-    }
-  }
-
-  size_t size() {
-    return settings_.size();
-  }
-
- private:
-  void Set(int32_t id, uint32_t value) {
-    settings_[id] = value;
-  }
-
-  void Find(int32_t id, const PropertyCallbackInfo<Value>& info) {
-    auto p = settings_.find(id);
-    if (p != settings_.end())
-      info.GetReturnValue().Set(p->second);
-  }
-
-  void FindBoolean(int32_t id, const PropertyCallbackInfo<Value>& info) {
-    auto p = settings_.find(id);
-    if (p != settings_.end())
-      info.GetReturnValue().Set(p->second != 0);
-  }
-
-  void Erase(int32_t id) {
-    settings_.erase(id);
-  }
-
-  std::map<int32_t, uint32_t> settings_;
 };
 
 class Http2Priority {
@@ -751,11 +653,11 @@ class Http2Stream : public AsyncWrap, public StreamBase {
 
 class SessionIdler {
  public:
-   SessionIdler(Http2Session* session) : session_(session) {}
+  explicit SessionIdler(Http2Session* session) : session_(session) {}
 
-   ~SessionIdler() {
-     session_ = nullptr;
-   }
+  ~SessionIdler() {
+    session_ = nullptr;
+  }
 
   Http2Session* session() {
     return session_;
@@ -765,7 +667,7 @@ class SessionIdler {
     return &idler_;
   }
 
-   uv_idle_t idler_;
+  uv_idle_t idler_;
  private:
   Http2Session* session_;
 };

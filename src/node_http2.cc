@@ -19,6 +19,7 @@
 namespace node {
 
 using v8::Array;
+using v8::Boolean;
 using v8::Context;
 using v8::External;
 using v8::Function;
@@ -51,231 +52,23 @@ Http2Options::Http2Options(Environment* env, Local<Value> options) {
   nghttp2_option_new(&options_);
   if (options->IsObject()) {
     Local<Object> opts = options.As<Object>();
+  Local<Context> context = env->context();
+  Isolate* isolate = env->isolate();
 
 #define V(obj, name, fn, type)                                                \
-  {                                                                           \
-    Local<Value> val = obj->Get(FIXED_ONE_BYTE_STRING(env->isolate(), name)); \
-    if (!val.IsEmpty() && !val->IsUndefined())                                \
-      fn(val->type##Value());                                                 \
-  }
+  do {                                                                        \
+    Local<String> str = FIXED_ONE_BYTE_STRING(isolate, name);                 \
+    if (obj->Has(context, str).FromJust()) {                                  \
+      Local<Value> val = obj->Get(context, str).ToLocalChecked();             \
+      if (!val->IsUndefined() && !val->IsNull())                              \
+        fn(val->type##Value());                                               \
+    }                                                                         \
+  } while (0);
     OPTIONS(opts, V)
 #undef V
   }
 }
 #undef OPTIONS
-
-// Http2Settings statics
-
-// Utility typedef used to abstract getting remote or local
-// settings from the nghttp2_session instance.
-typedef uint32_t(*get_setting)(nghttp2_session* session,
-                               nghttp2_settings_id id);
-Http2Settings::Http2Settings(Environment* env,
-                             Local<Object> wrap,
-                             Http2Session* session,
-                             bool localSettings) :
-                             BaseObject(env, wrap) {
-  MakeWeak<Http2Settings>(this);
-
-  if (session != nullptr) {
-    // When initialized using an existing Http2Session instance,
-    // fetch the currently established settings and fill in the
-    // internal map.
-    get_setting fn =
-        localSettings ?
-            nghttp2_session_get_local_settings :
-            nghttp2_session_get_remote_settings;
-      Set(NGHTTP2_SETTINGS_HEADER_TABLE_SIZE,
-          fn(**session, NGHTTP2_SETTINGS_HEADER_TABLE_SIZE));
-      Set(NGHTTP2_SETTINGS_ENABLE_PUSH,
-          fn(**session, NGHTTP2_SETTINGS_ENABLE_PUSH));
-      Set(NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS,
-          fn(**session, NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS));
-      Set(NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE,
-          fn(**session, NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE));
-      Set(NGHTTP2_SETTINGS_MAX_FRAME_SIZE,
-          fn(**session, NGHTTP2_SETTINGS_MAX_FRAME_SIZE));
-      Set(NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE,
-          fn(**session, NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE));
-  }
-}
-
-void Http2Settings::New(const FunctionCallbackInfo<Value>& args) {
-  Environment* env = Environment::GetCurrent(args);
-  if (!args.IsConstructCall())
-    return env->ThrowTypeError("Class constructor Http2Settings cannot "
-                               "be invoked without 'new'");
-  new Http2Settings(env, args.This());
-}
-
-// Used to fill in the spec defined initial values for each setting.
-void Http2Settings::Defaults(const FunctionCallbackInfo<Value>& args) {
-  Http2Settings* settings;
-  ASSIGN_OR_RETURN_UNWRAP(&settings, args.Holder());
-  settings->settings_.clear();
-  settings->Set(NGHTTP2_SETTINGS_HEADER_TABLE_SIZE,
-                DEFAULT_SETTINGS_HEADER_TABLE_SIZE);
-  settings->Set(NGHTTP2_SETTINGS_ENABLE_PUSH,
-                DEFAULT_SETTINGS_ENABLE_PUSH);
-  settings->Set(NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE,
-                DEFAULT_SETTINGS_INITIAL_WINDOW_SIZE);
-  settings->Set(NGHTTP2_SETTINGS_MAX_FRAME_SIZE,
-                DEFAULT_SETTINGS_MAX_FRAME_SIZE);
-}
-
-// Reset the settings object by clearing the internal map
-void Http2Settings::Reset(const FunctionCallbackInfo<Value>& args) {
-  Http2Settings* settings;
-  ASSIGN_OR_RETURN_UNWRAP(&settings, args.Holder());
-  settings->settings_.clear();
-}
-
-// Serializes the settings object into a Buffer instance that
-// would be suitable, for instance, for creating the Base64
-// output for an HTTP2-Settings header field.
-void Http2Settings::Pack(const FunctionCallbackInfo<Value>& args) {
-  Environment* env = Environment::GetCurrent(args);
-  HandleScope scope(env->isolate());
-  Http2Settings* settings;
-  ASSIGN_OR_RETURN_UNWRAP(&settings, args.Holder());
-  std::vector<nghttp2_settings_entry> entries;
-  settings->CollectSettings(&entries);
-  size_t len = entries.size() * 6;
-  MaybeStackBuffer<char> buf(len);
-  ssize_t ret =
-      nghttp2_pack_settings_payload(
-        reinterpret_cast<uint8_t*>(*buf), len, &entries[0], entries.size());
-  if (ret >= 0) {
-    args.GetReturnValue().Set(
-      Buffer::Copy(env, *buf, len).ToLocalChecked());
-  }
-}
-
-void Http2Settings::GetHeaderTableSize(
-    Local<String> property,
-    const PropertyCallbackInfo<Value>& info) {
-  Http2Settings* settings;
-  ASSIGN_OR_RETURN_UNWRAP(&settings, info.Holder());
-  settings->Find(NGHTTP2_SETTINGS_HEADER_TABLE_SIZE, info);
-}
-
-void Http2Settings::SetHeaderTableSize(
-    Local<String> property,
-    Local<Value> value,
-    const PropertyCallbackInfo<void>& info) {
-  Http2Settings* settings;
-  ASSIGN_OR_RETURN_UNWRAP(&settings, info.Holder());
-  if (value->IsUndefined())
-    settings->Erase(NGHTTP2_SETTINGS_HEADER_TABLE_SIZE);
-  else
-    settings->Set(NGHTTP2_SETTINGS_HEADER_TABLE_SIZE, value->Uint32Value());
-}
-
-void Http2Settings::GetEnablePush(
-    Local<String> property,
-    const PropertyCallbackInfo<Value>& info) {
-  Http2Settings* settings;
-  ASSIGN_OR_RETURN_UNWRAP(&settings, info.Holder());
-  settings->FindBoolean(NGHTTP2_SETTINGS_ENABLE_PUSH, info);
-}
-
-void Http2Settings::SetEnablePush(
-    Local<String> property,
-    Local<Value> value,
-    const PropertyCallbackInfo<void>& info) {
-  Http2Settings* settings;
-  ASSIGN_OR_RETURN_UNWRAP(&settings, info.Holder());
-  if (value->IsUndefined())
-    settings->Erase(NGHTTP2_SETTINGS_ENABLE_PUSH);
-  else
-    settings->Set(NGHTTP2_SETTINGS_ENABLE_PUSH, value->BooleanValue() ? 1 : 0);
-}
-
-void Http2Settings::GetMaxConcurrentStreams(
-    Local<String> property,
-    const PropertyCallbackInfo<Value>& info) {
-  Http2Settings* settings;
-  ASSIGN_OR_RETURN_UNWRAP(&settings, info.Holder());
-  settings->Find(NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, info);
-}
-
-void Http2Settings::SetMaxConcurrentStreams(
-    Local<String> property,
-    Local<Value> value,
-    const PropertyCallbackInfo<void>& info) {
-  Http2Settings* settings;
-  ASSIGN_OR_RETURN_UNWRAP(&settings, info.Holder());
-  if (value->IsUndefined()) {
-    settings->Erase(NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS);
-  } else {
-    settings->Set(NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS,
-                  value->Uint32Value());
-  }
-}
-
-void Http2Settings::GetInitialWindowSize(
-    Local<String> property,
-    const PropertyCallbackInfo<Value>& info) {
-  Http2Settings* settings;
-  ASSIGN_OR_RETURN_UNWRAP(&settings, info.Holder());
-  settings->Find(NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE, info);
-}
-
-void Http2Settings::SetInitialWindowSize(
-    Local<String> property,
-    Local<Value> value,
-    const PropertyCallbackInfo<void>& info) {
-  Http2Settings* settings;
-  ASSIGN_OR_RETURN_UNWRAP(&settings, info.Holder());
-  if (value->IsUndefined())
-    settings->Erase(NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE);
-  else
-    settings->Set(NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE,
-                  MIN(MAX_INITIAL_WINDOW_SIZE, value->Uint32Value()));
-}
-
-void Http2Settings::GetMaxFrameSize(
-    Local<String> property,
-    const PropertyCallbackInfo<Value>& info) {
-  Http2Settings* settings;
-  ASSIGN_OR_RETURN_UNWRAP(&settings, info.Holder());
-  settings->Find(NGHTTP2_SETTINGS_MAX_FRAME_SIZE, info);
-}
-
-void Http2Settings::SetMaxFrameSize(
-    Local<String> property,
-    Local<Value> value,
-    const PropertyCallbackInfo<void>& info) {
-  Http2Settings* settings;
-  ASSIGN_OR_RETURN_UNWRAP(&settings, info.Holder());
-  if (value->IsUndefined()) {
-    settings->Erase(NGHTTP2_SETTINGS_MAX_FRAME_SIZE);
-  } else {
-    settings->Set(
-        NGHTTP2_SETTINGS_MAX_FRAME_SIZE,
-        MAX(MIN(value->Uint32Value(), MAX_MAX_FRAME_SIZE), MIN_MAX_FRAME_SIZE));
-  }
-}
-
-void Http2Settings::GetMaxHeaderListSize(
-    Local<String> property,
-    const PropertyCallbackInfo<Value>& info) {
-  Http2Settings* settings;
-  ASSIGN_OR_RETURN_UNWRAP(&settings, info.Holder());
-  settings->Find(NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE, info);
-}
-void Http2Settings::SetMaxHeaderListSize(
-    Local<String> property,
-    Local<Value> value,
-    const PropertyCallbackInfo<void>& info) {
-  Http2Settings* settings;
-  ASSIGN_OR_RETURN_UNWRAP(&settings, info.Holder());
-  if (value->IsUndefined())
-    settings->Erase(NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE);
-  else
-    settings->Set(NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE, value->Uint32Value());
-}
-
 
 // Http2Headers statics
 
@@ -680,15 +473,18 @@ int Http2Stream::DoWrite(WriteWrap* w,
 
   w->Dispatched();
   w->Done(0);
+
   return 0;
 }
 
 bool Http2Stream::IsAlive() {
   return true;
-  //return nghttp2_stream_get_state(**this) != NGHTTP2_STREAM_STATE_CLOSED;
+  // TODO(jasnell): Revisit this
+  // return nghttp2_stream_get_state(**this) != NGHTTP2_STREAM_STATE_CLOSED;
 }
 
 bool Http2Stream::IsClosing() {
+  // TODO(jasnell): Revisit this
   return false;
 }
 
@@ -1232,35 +1028,45 @@ void Http2Session::SetLocalWindowSize(const FunctionCallbackInfo<Value>& args) {
       **session, NGHTTP2_FLAG_NONE, 0, args[0]->Int32Value());
 }
 
+#define SETTINGS(V)                                                     \
+  V("headerTableSize", NGHTTP2_SETTINGS_HEADER_TABLE_SIZE,              \
+    Integer, NewFromUnsigned)                                           \
+  V("maxConcurrentStreams", NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS,    \
+    Integer, NewFromUnsigned)                                           \
+  V("initialWindowSize", NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE,          \
+    Integer, NewFromUnsigned)                                           \
+  V("maxFrameSize", NGHTTP2_SETTINGS_MAX_FRAME_SIZE,                    \
+    Integer, NewFromUnsigned)                                           \
+  V("maxHeaderListSize", NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE,         \
+    Integer, NewFromUnsigned)                                           \
+  V("enablePush", NGHTTP2_SETTINGS_ENABLE_PUSH,                         \
+    Boolean, New)
+
+typedef uint32_t(*get_setting)(nghttp2_session* session,
+                               nghttp2_settings_id id);
+void GetSettings(Environment* env,
+                 nghttp2_session* session,
+                 get_setting fn,
+                 Local<Object> obj) {
+  Local<Context> context = env->context();
+  Isolate* isolate = env->isolate();
+#define V(name, id, type, c)                                            \
+  obj->Set(context,                                                     \
+           FIXED_ONE_BYTE_STRING(isolate, name),                        \
+           type::c(isolate, fn(session, id))).FromJust();
+  SETTINGS(V)
+#undef V
+}
+
 void Http2Session::GetLocalSettings(
     const FunctionCallbackInfo<Value>& args) {
   Http2Session* session;
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
   Environment* env = session->env();
-  HandleScope scope(env->isolate());
-  CHECK_EQ(env->http2settings_constructor_template().IsEmpty(), false);
-  Local<Function> constructor =
-      env->http2settings_constructor_template()->GetFunction();
-  CHECK_EQ(constructor.IsEmpty(), false);
-  Local<Object> obj = constructor->NewInstance(env->context()).ToLocalChecked();
-  new Http2Settings(env, obj, session, true);
+  CHECK(args[0]->IsObject());
+  Local<Object> obj = args[0].As<Object>();
+  GetSettings(env, **session, nghttp2_session_get_local_settings, obj);
   args.GetReturnValue().Set(obj);
-}
-
-void Http2Session::SetLocalSettings(const FunctionCallbackInfo<Value>& args) {
-  Http2Session* session;
-  ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
-  Environment* env = session->env();
-
-  Http2Settings* settings;
-  THROW_AND_RETURN_UNLESS_HTTP2SETTINGS(env, args[0]);
-  ASSIGN_OR_RETURN_UNWRAP(&settings, args[0].As<Object>());
-  std::vector<nghttp2_settings_entry> entries;
-  settings->CollectSettings(&entries);
-
-  nghttp2_submit_settings(**session, NGHTTP2_FLAG_NONE,
-                          &entries[0], entries.size());
-  session->SendIfNecessary();
 }
 
 void Http2Session::GetRemoteSettings(
@@ -1268,15 +1074,39 @@ void Http2Session::GetRemoteSettings(
   Http2Session* session;
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
   Environment* env = session->env();
-
-  HandleScope scope(env->isolate());
-  CHECK_EQ(env->http2settings_constructor_template().IsEmpty(), false);
-  Local<Function> constructor =
-      env->http2settings_constructor_template()->GetFunction();
-  CHECK_EQ(constructor.IsEmpty(), false);
-  Local<Object> obj = constructor->NewInstance(env->context()).ToLocalChecked();
-  new Http2Settings(env, obj, session, false);
+  CHECK(args[0]->IsObject());
+  Local<Object> obj = args[0].As<Object>();
+  GetSettings(env, **session, nghttp2_session_get_remote_settings, obj);
   args.GetReturnValue().Set(obj);
+}
+
+void Http2Session::SetLocalSettings(const FunctionCallbackInfo<Value>& args) {
+  Http2Session* session;
+  ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
+  Environment* env = session->env();
+  Local<Context> context = env->context();
+  Isolate* isolate = env->isolate();
+
+  CHECK(args[0]->IsObject());
+  Local<Object> obj = args[0].As<Object>();
+
+  std::vector<nghttp2_settings_entry> entries;
+
+#define V(name, id, type, c)                                              \
+  do {                                                                    \
+     Local<String> str = FIXED_ONE_BYTE_STRING(isolate, name);            \
+     if (obj->Has(context, str).FromJust()) {                             \
+       Local<Value> val = obj->Get(context, str).ToLocalChecked();        \
+       if (!val->IsUndefined() && !val->IsNull())                         \
+         entries.push_back({id, val->Uint32Value()});                     \
+     }                                                                    \
+  } while (0);
+  SETTINGS(V)
+#undef V
+
+  nghttp2_submit_settings(**session, NGHTTP2_FLAG_NONE,
+                          &entries[0], entries.size());
+  session->SendIfNecessary();
 }
 
 // Signals termination of the nghttp2_session by sending a GOAWAY
@@ -1357,6 +1187,73 @@ void HttpErrorString(const FunctionCallbackInfo<Value>& args) {
                     nghttp2_strerror(args[0]->Uint32Value())));
 }
 
+// Serializes the settings object into a Buffer instance that
+// would be suitable, for instance, for creating the Base64
+// output for an HTTP2-Settings header field.
+void PackSettings(const FunctionCallbackInfo<Value>& args) {
+  Environment* env = Environment::GetCurrent(args);
+  Isolate* isolate = env->isolate();
+  Local<Context> context = env->context();
+  HandleScope scope(env->isolate());
+
+  CHECK(args[0]->IsObject());
+  Local<Object> obj = args[0].As<Object>();
+  std::vector<nghttp2_settings_entry> entries;
+
+#define V(name, id, type, c)                                              \
+  do {                                                                    \
+     Local<String> str = FIXED_ONE_BYTE_STRING(isolate, name);            \
+     if (obj->Has(context, str).FromJust()) {                             \
+       Local<Value> val = obj->Get(context, str).ToLocalChecked();        \
+       if (!val->IsUndefined() && !val->IsNull())                         \
+         entries.push_back({id, val->Uint32Value()});                     \
+     }                                                                    \
+  } while (0);
+  SETTINGS(V)
+#undef V
+
+  const size_t len = entries.size() * 6;
+  MaybeStackBuffer<char> buf(len);
+  ssize_t ret =
+      nghttp2_pack_settings_payload(
+        reinterpret_cast<uint8_t*>(*buf), len, &entries[0], entries.size());
+  if (ret >= 0) {
+    args.GetReturnValue().Set(
+      Buffer::Copy(env, *buf, len).ToLocalChecked());
+  }
+}
+
+// Used to fill in the spec defined initial values for each setting.
+void GetDefaultSettings(const FunctionCallbackInfo<Value>& args) {
+  Environment* env = Environment::GetCurrent(args);
+  Isolate* isolate = env->isolate();
+  Local<Context> context = env->context();
+  CHECK(args[0]->IsObject());
+  Local<Object> obj = args[0].As<Object>();
+  obj->Set(context,
+           FIXED_ONE_BYTE_STRING(isolate, "headerTableSize"),
+           Integer::NewFromUnsigned(
+               isolate,
+               DEFAULT_SETTINGS_HEADER_TABLE_SIZE))
+                   .FromJust();
+  obj->Set(context,
+           FIXED_ONE_BYTE_STRING(isolate, "enablePush"),
+           Boolean::New(isolate, DEFAULT_SETTINGS_ENABLE_PUSH))
+               .FromJust();
+  obj->Set(context,
+           FIXED_ONE_BYTE_STRING(isolate, "initialWindowSize"),
+           Integer::NewFromUnsigned(
+               isolate,
+               DEFAULT_SETTINGS_INITIAL_WINDOW_SIZE))
+                   .FromJust();
+  obj->Set(context,
+           FIXED_ONE_BYTE_STRING(isolate, "maxFrameSize"),
+           Integer::NewFromUnsigned(
+               isolate,
+               DEFAULT_SETTINGS_MAX_FRAME_SIZE))
+                   .FromJust();
+  args.GetReturnValue().Set(obj);
+}
 
 void Initialize(Local<Object> target,
                 Local<Value> unused,
@@ -1377,9 +1274,6 @@ void Initialize(Local<Object> target,
                         v8::NewStringType::kInternalized).ToLocalChecked();
   Local<String> http2StreamClassName =
     String::NewFromUtf8(isolate, "Http2Stream",
-                        v8::NewStringType::kInternalized).ToLocalChecked();
-  Local<String> http2SettingsClassName =
-    String::NewFromUtf8(isolate, "Http2Settings",
                         v8::NewStringType::kInternalized).ToLocalChecked();
 
   // Persistent FunctionTemplate for Http2Stream. Instances of this
@@ -1410,44 +1304,6 @@ void Initialize(Local<Object> target,
   env->set_http2stream_object(
     stream->GetFunction()->NewInstance(env->context()).ToLocalChecked());
   target->Set(http2StreamClassName, stream->GetFunction());
-
-  // Http2Settings Template
-  Local<FunctionTemplate> settings =
-      env->NewFunctionTemplate(Http2Settings::New);
-  settings->SetClassName(http2SettingsClassName);
-  settings->InstanceTemplate()->SetInternalFieldCount(1);
-
-  env->SetAccessor(settings,
-                   "headerTableSize",
-                   Http2Settings::GetHeaderTableSize,
-                   Http2Settings::SetHeaderTableSize);
-  env->SetAccessor(settings,
-                   "enablePush",
-                   Http2Settings::GetEnablePush,
-                   Http2Settings::SetEnablePush);
-  env->SetAccessor(settings,
-                   "maxConcurrentStreams",
-                   Http2Settings::GetMaxConcurrentStreams,
-                   Http2Settings::SetMaxConcurrentStreams);
-  env->SetAccessor(settings,
-                   "initialWindowSize",
-                   Http2Settings::GetInitialWindowSize,
-                   Http2Settings::SetInitialWindowSize);
-  env->SetAccessor(settings,
-                   "maxFrameSize",
-                   Http2Settings::GetMaxFrameSize,
-                   Http2Settings::SetMaxFrameSize);
-  env->SetAccessor(settings,
-                   "maxHeaderListSize",
-                   Http2Settings::GetMaxHeaderListSize,
-                   Http2Settings::SetMaxHeaderListSize);
-  env->SetProtoMethod(settings, "setDefaults", Http2Settings::Defaults);
-  env->SetProtoMethod(settings, "reset", Http2Settings::Reset);
-  env->SetProtoMethod(settings, "pack", Http2Settings::Pack);
-  env->set_http2settings_constructor_template(settings);
-  target->Set(context,
-              http2SettingsClassName,
-              settings->GetFunction()).FromJust();
 
   // Http2Headers Template
   Local<FunctionTemplate> headers =
@@ -1521,6 +1377,14 @@ void Initialize(Local<Object> target,
   NODE_DEFINE_CONSTANT(constants, NGHTTP2_NV_FLAG_NO_INDEX);
   NODE_DEFINE_CONSTANT(constants, NGHTTP2_ERR_DEFERRED);
 
+  NODE_DEFINE_CONSTANT(constants, DEFAULT_SETTINGS_HEADER_TABLE_SIZE);
+  NODE_DEFINE_CONSTANT(constants, DEFAULT_SETTINGS_ENABLE_PUSH);
+  NODE_DEFINE_CONSTANT(constants, DEFAULT_SETTINGS_INITIAL_WINDOW_SIZE);
+  NODE_DEFINE_CONSTANT(constants, DEFAULT_SETTINGS_MAX_FRAME_SIZE);
+  NODE_DEFINE_CONSTANT(constants, MAX_MAX_FRAME_SIZE);
+  NODE_DEFINE_CONSTANT(constants, MIN_MAX_FRAME_SIZE);
+  NODE_DEFINE_CONSTANT(constants, MAX_INITIAL_WINDOW_SIZE);
+
 #define STRING_CONSTANT(N) NODE_DEFINE_STRING_CONSTANT(constants, #N, N)
   STRING_CONSTANT(HTTP2_HEADER_STATUS);
   STRING_CONSTANT(HTTP2_HEADER_METHOD);
@@ -1536,6 +1400,10 @@ HTTP_STATUS_CODES(V)
 #define V(name) NODE_DEFINE_CONSTANT(constants, FLAG_##name);
 DATA_FLAGS(V)
 #undef V
+
+  env->SetMethod(target, "getDefaultSettings", GetDefaultSettings);
+  env->SetMethod(target, "packSettings", PackSettings);
+
 
   target->Set(context,
               FIXED_ONE_BYTE_STRING(isolate, "constants"),
