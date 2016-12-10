@@ -35,7 +35,6 @@ using v8::Map;
 using v8::Name;
 using v8::Object;
 using v8::Persistent;
-using v8::PropertyCallbackInfo;
 using v8::String;
 using v8::Value;
 
@@ -134,9 +133,6 @@ enum http2_data_flags {
     if (!env->template##_constructor_template()->HasInstance(obj))            \
       return env->ThrowTypeError("argument must be an " #name " instance");   \
   } while (0)
-
-#define THROW_AND_RETURN_UNLESS_HTTP2HEADERS(env, obj)                        \
-  THROW_AND_RETURN_UNLESS_(http2headers, "Http2Headers", env, obj);
 
 #define THROW_AND_RETURN_UNLESS_HTTP2SETTINGS(env, obj)                       \
   THROW_AND_RETURN_UNLESS_(http2settings, "Http2Settings", env, obj);
@@ -340,58 +336,6 @@ class Http2Header : public nghttp2_nv {
     free(name);
     free(value);
   }
-};
-
-class Http2Headers : public BaseObject {
- public:
-  Http2Headers(Environment* env,
-               Local<Object> wrap,
-               int reserve) :
-               BaseObject(env, wrap) {
-    MakeWeak(this);
-    entries_.reserve(reserve);
-  }
-
-  ~Http2Headers() {}
-
-  static void New(const FunctionCallbackInfo<Value>& args);
-  static void Add(const FunctionCallbackInfo<Value>& args);
-  static void Clear(const FunctionCallbackInfo<Value>& args);
-  static void Reserve(const FunctionCallbackInfo<Value>& args);
-  static void GetSize(Local<String> property,
-                      const PropertyCallbackInfo<Value>& info);
-
-  size_t Size() {
-    return entries_.size();
-  }
-
-  nghttp2_nv* operator*() {
-    return &entries_[0];
-  }
-
- private:
-  void Add(const char* name,
-           const char* value,
-           size_t nlen,
-           size_t vlen,
-           bool noindex = false) {
-    uint8_t flags = NGHTTP2_NV_FLAG_NONE;
-    if (noindex)
-      flags |= NGHTTP2_NV_FLAG_NO_INDEX;
-    const Http2Header* header =
-      new Http2Header(name, value, nlen, vlen, noindex);
-    entries_.push_back(*header);
-  }
-
-  void Reserve(int inc) {
-    entries_.reserve(entries_.size() + inc);
-  }
-
-  void Clear() {
-    entries_.clear();
-  }
-
-  std::vector<Http2Header> entries_;
 };
 
 class Http2Stream : public AsyncWrap, public StreamBase {

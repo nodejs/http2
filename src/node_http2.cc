@@ -32,7 +32,6 @@ using v8::Isolate;
 using v8::Local;
 using v8::Name;
 using v8::Object;
-using v8::PropertyCallbackInfo;
 using v8::String;
 using v8::Value;
 
@@ -69,45 +68,6 @@ Http2Options::Http2Options(Environment* env, Local<Value> options) {
   }
 }
 #undef OPTIONS
-
-// Http2Headers statics
-
-// Create a new Http2Headers object. The first argument is the
-// number of headers expected in order to reserve the space.
-void Http2Headers::New(const FunctionCallbackInfo<Value>& args) {
-  Environment* env = Environment::GetCurrent(args);
-  new Http2Headers(env, args.This(), args[0]->IntegerValue());
-}
-
-void Http2Headers::Add(const FunctionCallbackInfo<Value>& args) {
-  Http2Headers* headers;
-  ASSIGN_OR_RETURN_UNWRAP(&headers, args.Holder());
-  Environment* env = headers->env();
-  Utf8Value key(env->isolate(), args[0]);
-  Utf8Value value(env->isolate(), args[1]);
-  bool noindex = args[2]->BooleanValue();
-  headers->Add(*key, *value, key.length(), value.length(), noindex);
-}
-
-void Http2Headers::Reserve(const FunctionCallbackInfo<Value>& args) {
-  Http2Headers* headers;
-  ASSIGN_OR_RETURN_UNWRAP(&headers, args.Holder());
-  headers->Reserve(args[0]->IntegerValue());
-}
-
-void Http2Headers::Clear(const FunctionCallbackInfo<Value>& args) {
-  Http2Headers* headers;
-  ASSIGN_OR_RETURN_UNWRAP(&headers, args.Holder());
-  headers->Clear();
-}
-
-void Http2Headers::GetSize(Local<String> property,
-                           const PropertyCallbackInfo<Value>& info) {
-  Http2Headers* headers;
-  ASSIGN_OR_RETURN_UNWRAP(&headers, info.Holder());
-  Environment* env = headers->env();
-  info.GetReturnValue().Set(Integer::New(env->isolate(), headers->Size()));
-}
 
 // Http2Stream Statics
 
@@ -388,11 +348,12 @@ void Http2Stream::ChangeStreamPriority(
 }
 
 // Send a PUSH_PROMISE frame, then create and return the Http2Stream
-// instance that is associated. The first argument is an Http2Headers
+// instance that is associated. The first argument is an array of header entries
 // object instance used to pass along the PUSH_PROMISE headers. If
 // this Http2Stream instance is detached, then this is a non-op
 void Http2Stream::SendPushPromise(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
+  Isolate* isolate = env->isolate();
   HandleScope scope(env->isolate());
   Http2Stream* stream;
   ASSIGN_OR_RETURN_UNWRAP(&stream, args.Holder());
@@ -401,14 +362,35 @@ void Http2Stream::SendPushPromise(const FunctionCallbackInfo<Value>& args) {
   if (session->type_ == SESSION_TYPE_CLIENT) {
     return env->ThrowError("Client Http2Session instances cannot use push");
   }
-  Http2Headers* headers;
-  THROW_AND_RETURN_UNLESS_HTTP2HEADERS(env, args[0]);
-  ASSIGN_OR_RETURN_UNWRAP(&headers, args[0].As<Object>());
+
+  CHECK(args[0]->IsArray());
+  std::vector<Http2Header> headers_list;
+  Local<Array> headers = args[0].As<Array>();
+  for (size_t n = 0; n < headers->Length(); n++) {
+    Local<Value> item = headers->Get(n);
+    if (item->IsArray()) {
+      Local<Array> header = item.As<Array>();
+      Utf8Value key(isolate, header->Get(0));
+      Utf8Value value(isolate, header->Get(1));
+      const Http2Header* entry =
+        new Http2Header(*key, *value,
+                        key.length(),
+                        value.length(),
+                        header->Get(2)->BooleanValue());
+      if (strncmp(*key, ":", 1) == 0) {
+        headers_list.insert(headers_list.begin(), *entry);
+      } else {
+        headers_list.push_back(*entry);
+      }
+    }
+  }
+
+
   int32_t rv =
       nghttp2_submit_push_promise(**session,
                                   NGHTTP2_FLAG_NONE,
                                   stream->id(),
-                                  **headers, headers->Size(),
+                                  &headers_list[0], headers_list.size(),
                                   stream);
   session->EmitErrorIfFail(rv);
 
@@ -1144,7 +1126,7 @@ void Http2Session::GracefulTerminate(const FunctionCallbackInfo<Value>& args) {
 }
 
 // Initiate sending a request. Request headers must be passed as an
-// argument in the form of an Http2Headers object. This will result
+// argument in the form of an array of header entries. This will result
 // in sending an initial HEADERS frame (or multiple), zero or more
 // DATA frames, and zero or more trailing HEADERS frames.
 void Http2Session::Request(const FunctionCallbackInfo<Value>& args) {
@@ -1159,9 +1141,27 @@ void Http2Session::Request(const FunctionCallbackInfo<Value>& args) {
   Local<Object> obj = env->http2stream_object()->Clone();
   Http2Stream* stream = new Http2Stream(env, scope.Escape(obj));
 
-  Http2Headers* headers;
-  THROW_AND_RETURN_UNLESS_HTTP2HEADERS(env, args[0]);
-  ASSIGN_OR_RETURN_UNWRAP(&headers, args[0].As<Object>());
+  CHECK(args[0]->IsArray());
+  std::vector<Http2Header> headers_list;
+  Local<Array> headers = args[0].As<Array>();
+  for (size_t n = 0; n < headers->Length(); n++) {
+    Local<Value> item = headers->Get(n);
+    if (item->IsArray()) {
+      Local<Array> header = item.As<Array>();
+      Utf8Value key(isolate, header->Get(0));
+      Utf8Value value(isolate, header->Get(1));
+      const Http2Header* entry =
+        new Http2Header(*key, *value,
+                        key.length(),
+                        value.length(),
+                        header->Get(2)->BooleanValue());
+      if (strncmp(*key, ":", 1) == 0) {
+        headers_list.insert(headers_list.begin(), *entry);
+      } else {
+        headers_list.push_back(*entry);
+      }
+    }
+  }
 
   bool nodata = args[1]->BooleanValue();
   nghttp2_data_provider* provider = nodata ? nullptr : stream->provider();
@@ -1169,7 +1169,7 @@ void Http2Session::Request(const FunctionCallbackInfo<Value>& args) {
   const nghttp2_priority_spec* pri = NULL;
 
   int32_t rv = nghttp2_submit_request(**session, pri,
-                                      **headers, headers->Size(),
+                                      &headers_list[0], headers_list.size(),
                                       provider, stream);
 
   session->EmitErrorIfFail(rv);
@@ -1266,9 +1266,6 @@ void Initialize(Local<Object> target,
   // Method to fetch the nghttp2 string description of an nghttp2 error code
   env->SetMethod(target, "nghttp2ErrorString", HttpErrorString);
 
-  Local<String> http2HeadersClassName =
-    String::NewFromUtf8(isolate, "Http2Headers",
-                        v8::NewStringType::kInternalized).ToLocalChecked();
   Local<String> http2SessionClassName =
     String::NewFromUtf8(isolate, "Http2Session",
                         v8::NewStringType::kInternalized).ToLocalChecked();
@@ -1304,20 +1301,6 @@ void Initialize(Local<Object> target,
   env->set_http2stream_object(
     stream->GetFunction()->NewInstance(env->context()).ToLocalChecked());
   target->Set(http2StreamClassName, stream->GetFunction());
-
-  // Http2Headers Template
-  Local<FunctionTemplate> headers =
-      env->NewFunctionTemplate(Http2Headers::New);
-  headers->InstanceTemplate()->SetInternalFieldCount(1);
-  headers->SetClassName(http2HeadersClassName);
-  env->SetAccessor(headers, "size", Http2Headers::GetSize);
-  env->SetProtoMethod(headers, "add", Http2Headers::Add);
-  env->SetProtoMethod(headers, "clear", Http2Headers::Clear);
-  env->SetProtoMethod(headers, "reserve", Http2Headers::Reserve);
-  env->set_http2headers_constructor_template(headers);
-  target->Set(context,
-              http2HeadersClassName,
-              headers->GetFunction()).FromJust();
 
   // Http2Session Template
   Local<FunctionTemplate> t =
