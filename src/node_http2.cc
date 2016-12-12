@@ -2,6 +2,7 @@
 #include "node_buffer.h"
 #include "nghttp2/nghttp2.h"
 #include "node_http2.h"
+#include "node_http2_core.h"
 #include "stream_base.h"
 #include "stream_base-inl.h"
 
@@ -436,9 +437,6 @@ int Http2Stream::DoWrite(WriteWrap* w,
                          size_t count,
                          uv_stream_t* send_handle) {
   // Buffer the data for the Data Provider
-
-  session()->SendIfNecessary();
-
   if (w->object()->Has(FIXED_ONE_BYTE_STRING(env()->isolate(), "ending")))
     writable_ = false;
 
@@ -455,6 +453,8 @@ int Http2Stream::DoWrite(WriteWrap* w,
 
   w->Dispatched();
   w->Done(0);
+
+  session()->SendIfNecessary();
 
   return 0;
 }
