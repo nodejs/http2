@@ -346,7 +346,7 @@ void Http2Session::SubmitResponse(const FunctionCallbackInfo<Value>& args) {
   }
 
   Local<Array> headers = args[1].As<Array>();
-  bool emptyPayload = args[2]->BooleanValue();
+  bool endStream = args[2]->BooleanValue();
 
   // Using a vector instead of a MaybeStackBuffer because
   // we need to make sure that pseudo headers are moved to
@@ -377,10 +377,10 @@ void Http2Session::SubmitResponse(const FunctionCallbackInfo<Value>& args) {
     }
   }
 
-  nghttp2_submit_response(stream_handle, &list[0], list.size(), emptyPayload);
+  nghttp2_submit_response(stream_handle, &list[0], list.size(), endStream);
 }
 
-void Http2Session::SubmitInfo(const FunctionCallbackInfo<Value>& args) {
+void Http2Session::SendHeaders(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[0]->IsNumber());
   CHECK(args[1]->IsArray());
 
@@ -932,8 +932,8 @@ void Initialize(Local<Object> target,
                       Http2Session::Unconsume);
   env->SetProtoMethod(session, "destroy",
                       Http2Session::Destroy);
-  env->SetProtoMethod(session, "submitInfo",
-                      Http2Session::SubmitInfo);
+  env->SetProtoMethod(session, "sendHeaders",
+                      Http2Session::SendHeaders);
   env->SetProtoMethod(session, "submitShutdown",
                       Http2Session::SubmitShutdown);
   env->SetProtoMethod(session, "submitSettings",
@@ -1018,6 +1018,7 @@ void Initialize(Local<Object> target,
   STRING_CONSTANT(HTTP2_HEADER_AUTHORITY);
   STRING_CONSTANT(HTTP2_HEADER_SCHEME);
   STRING_CONSTANT(HTTP2_HEADER_PATH);
+  STRING_CONSTANT(HTTP2_HEADER_DATE);
 #undef STRING_CONSTANT
 
 #define V(name, _) NODE_DEFINE_CONSTANT(constants, HTTP_STATUS_##name);

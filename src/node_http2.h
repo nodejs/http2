@@ -46,6 +46,7 @@ using v8::Value;
 #define HTTP2_HEADER_AUTHORITY ":authority"
 #define HTTP2_HEADER_SCHEME ":scheme"
 #define HTTP2_HEADER_PATH ":path"
+#define HTTP2_HEADER_DATE "date"
 
 #define HTTP_STATUS_CODES(V)                                                  \
   V(CONTINUE, 100)                                                            \
@@ -410,7 +411,7 @@ class Http2Session : public AsyncWrap, public StreamBase {
   static void SubmitSettings(const FunctionCallbackInfo<Value>& args);
   static void SubmitRstStream(const FunctionCallbackInfo<Value>& args);
   static void SubmitResponse(const FunctionCallbackInfo<Value>& args);
-  static void SubmitInfo(const FunctionCallbackInfo<Value>& args);
+  static void SendHeaders(const FunctionCallbackInfo<Value>& args);
   static void ShutdownStream(const FunctionCallbackInfo<Value>& args);
   static void StreamWrite(const FunctionCallbackInfo<Value>& args);
   static void StreamReadStart(const FunctionCallbackInfo<Value>& args);
