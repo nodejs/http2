@@ -12,6 +12,9 @@
 #include <memory>
 #include <string>
 
+namespace node {
+namespace http2 {
+
 typedef struct nghttp2_session_s nghttp2_session_t;
 typedef struct nghttp2_stream_s nghttp2_stream_t;
 typedef struct nghttp2_stream_write_s nghttp2_stream_write_t;
@@ -27,64 +30,22 @@ typedef enum {
 } nghttp2_session_type;
 
 typedef enum {
-  NGHTTP2_SESSION,
-  NGHTTP2_STREAM
-} nghttp2_handle_type;
-
-typedef enum {
   NGHTTP2_SHUTDOWN_FLAG_GRACEFUL,
   NGHTTP2_SHUTDOWN_FLAG_IMMEDIATE
 } nghttp2_shutdown_flags;
 
-#define NGHTTP2_HANDLE_FIELDS                                                 \
-  /* public */                                                                \
-  void* data;                                                                 \
-  /* read-only */                                                             \
-  uv_loop_t* loop;                                                            \
-  nghttp2_handle_type type;                                                   \
-  /* private */                                                               \
-  uv_close_cb close_cb;                                                       \
-  void* handle_queue[2];                                                      \
-  union {                                                                     \
-    int fd;                                                                   \
-    void* reserved[4];                                                        \
-  } u;                                                                        \
-  int flags = 0;
+typedef enum {
+  NGHTTP2_STREAM_FLAG_NONE = 0x0,
+  // Writable side has ended
+  NGHTTP2_STREAM_FLAG_SHUT = 0x1,
+  // Readable side has ended
+  NGHTTP2_STREAM_FLAG_ENDED = 0x2
+} nghttp2_stream_flags;
 
-#define NGHTTP2_SESSION_FIELDS                                                \
-  nghttp2_session* session;                                                   \
-  nghttp2_session_type session_type;                                          \
-  node_nghttp2_session_callbacks callbacks;                                   \
-  uv_idle_t idler;                                                            \
-  nghttp2_pending_cb_list* pending_callbacks_head = nullptr;                  \
-  nghttp2_pending_cb_list* pending_callbacks_tail = nullptr;                  \
-  nghttp2_pending_cb_list* ready_callbacks_head = nullptr;                    \
-  nghttp2_pending_cb_list* ready_callbacks_tail = nullptr;                    \
-  std::map<int32_t, std::shared_ptr<nghttp2_stream_t>> streams;
+#define container_of(ptr, type, member)                                      \
+  reinterpret_cast<type*>((                                                  \
+    reinterpret_cast<char*>(ptr) - offsetof(type, member)));
 
-#define NGHTTP2_STREAM_FIELDS                                                 \
-  nghttp2_session_t* session = nullptr;                                       \
-  int32_t id = 0;                                                             \
-  nghttp2_stream_write_queue* queue_head = nullptr;                           \
-  nghttp2_stream_write_queue* queue_tail = nullptr;                           \
-  unsigned int queue_head_index = 0;                                          \
-  nghttp2_header_list* current_headers_head = nullptr;                        \
-  nghttp2_header_list* current_headers_tail = nullptr;                        \
-  nghttp2_headers_category current_headers_category = NGHTTP2_HCAT_HEADERS;   \
-  nghttp2_pending_data_chunks_cb* current_data_chunks_cb = nullptr;           \
-  int reading = -1;                                                           \
-  int32_t prev_local_window_size = 65535;                                     \
-
-#define NGHTTP2_REQ_FIELDS                                                    \
-  /* public */                                                                \
-  void* data;                                                                 \
-  /* read-only */                                                             \
-  uv_req_type type;                                                           \
-  /* private */                                                               \
-  void* active_queue[2];                                                      \
-  void* reserved[4];                                                          \
-  uv_work_t work_req;                                                         \
-  int status;
 
 // Callbacks
 typedef void (*nghttp2_stream_alloc_cb)(
@@ -109,12 +70,13 @@ struct nghttp2_stream_write_queue {
 };
 
 struct nghttp2_header_list {
-  nghttp2_rcbuf* name;
-  nghttp2_rcbuf* value;
+  nghttp2_rcbuf* name = nullptr;
+  nghttp2_rcbuf* value = nullptr;
   nghttp2_header_list* next = nullptr;
 };
 
 typedef enum {
+  NGHTTP2_CB_NONE,
   NGHTTP2_CB_SESSION_SEND,
   NGHTTP2_CB_HEADERS,
   NGHTTP2_CB_STREAM_CLOSE,
@@ -140,19 +102,19 @@ struct nghttp2_pending_session_send_cb {
 
 struct nghttp2_pending_headers_cb {
   std::shared_ptr<nghttp2_stream_t> handle;
-  nghttp2_headers_category category;
+  nghttp2_headers_category category = NGHTTP2_HCAT_HEADERS;
   nghttp2_header_list* headers = nullptr;
   uint8_t flags = NGHTTP2_FLAG_NONE;
 };
 
 struct nghttp2_pending_stream_close_cb {
   std::shared_ptr<nghttp2_stream_t> handle;
-  uint32_t error_code;
+  uint32_t error_code = NGHTTP2_NO_ERROR;
 };
 
 struct nghttp2_pending_cb_list {
-  nghttp2_pending_cb_type type;
-  void* cb;
+  nghttp2_pending_cb_type type = NGHTTP2_CB_NONE;
+  void* cb = nullptr;
   nghttp2_pending_cb_list* next = nullptr;
 };
 
@@ -186,7 +148,14 @@ typedef void (*nghttp2_session_on_settings_cb)(
 typedef void (*nghttp2_stream_get_trailers_cb)(
     nghttp2_session_t* session,
     std::shared_ptr<nghttp2_stream_t> stream,
-    std::vector<nghttp2_nv>* nva);
+    MaybeStackBuffer<nghttp2_nv>* nva);
+typedef ssize_t (*nghttp2_session_get_padding_cb)(
+    nghttp2_session_t* session,
+    size_t frameLength,
+    size_t maxFrameLength);
+typedef void (*nghttp2_free_session_cb)(
+    nghttp2_session_t* handle);
+
 
 struct node_nghttp2_session_callbacks_s {
   nghttp2_on_stream_init_cb stream_init = nullptr;
@@ -196,22 +165,45 @@ struct node_nghttp2_session_callbacks_s {
   nghttp2_session_on_stream_close_cb on_stream_close = nullptr;
   nghttp2_session_on_data_chunks_cb on_data_chunks = nullptr;
   nghttp2_session_on_settings_cb on_settings = nullptr;
+  nghttp2_session_get_padding_cb on_get_padding = nullptr;
   nghttp2_stream_get_trailers_cb on_get_trailers = nullptr;
+  nghttp2_free_session_cb on_free_session = nullptr;
 };
 
 // Handle Types
 struct nghttp2_session_s {
-  NGHTTP2_HANDLE_FIELDS
-  NGHTTP2_SESSION_FIELDS
+  uv_loop_t* loop;
+  uv_idle_t idler;
+  nghttp2_session* session;
+  nghttp2_session_type session_type;
+  node_nghttp2_session_callbacks callbacks;
+  nghttp2_pending_cb_list* pending_callbacks_head = nullptr;
+  nghttp2_pending_cb_list* pending_callbacks_tail = nullptr;
+  nghttp2_pending_cb_list* ready_callbacks_head = nullptr;
+  nghttp2_pending_cb_list* ready_callbacks_tail = nullptr;
+  std::map<int32_t, std::shared_ptr<nghttp2_stream_t>> streams;
+  nghttp2_session_get_padding_cb get_padding = nullptr;
 };
 
 struct nghttp2_stream_s {
-  NGHTTP2_HANDLE_FIELDS
-  NGHTTP2_STREAM_FIELDS
+  nghttp2_session_t* session = nullptr;
+  int32_t id = 0;
+  int flags = 0;
+  nghttp2_stream_write_queue* queue_head = nullptr;
+  nghttp2_stream_write_queue* queue_tail = nullptr;
+  unsigned int queue_head_index = 0;
+  size_t queue_head_offset = 0;
+  nghttp2_header_list* current_headers_head = nullptr;
+  nghttp2_header_list* current_headers_tail = nullptr;
+  nghttp2_headers_category current_headers_category = NGHTTP2_HCAT_HEADERS;
+  nghttp2_pending_data_chunks_cb* current_data_chunks_cb = nullptr;
+  int reading = -1;
+  int32_t prev_local_window_size = 65535;
 };
 
 struct nghttp2_stream_write_s {
-  NGHTTP2_REQ_FIELDS
+  void* data;
+  int status;
   std::shared_ptr<nghttp2_stream_t> handle;
   nghttp2_stream_write_queue* item;
 };
@@ -223,51 +215,59 @@ struct nghttp2_data_chunk_s {
 
 struct nghttp2_data_chunks_s {
   node::MaybeStackBuffer<uv_buf_t, kSimultaneousBufferCount> buf;
-  unsigned int nbufs;
+  unsigned int nbufs = 0;
 };
 
-UV_EXTERN bool nghttp2_session_has_stream(
+inline bool nghttp2_session_has_stream(
     nghttp2_session_t* handle,
     int32_t id);
 
-UV_EXTERN bool nghttp2_session_find_stream(
+inline bool nghttp2_session_find_stream(
     nghttp2_session_t* handle,
     int32_t id,
     std::shared_ptr<nghttp2_stream_t>* stream_handle);
 
-UV_EXTERN void nghttp2_set_callback_stream_get_trailers(
+inline void nghttp2_set_callbacks_free_session(
+    node_nghttp2_session_callbacks* callbacks,
+    nghttp2_free_session_cb cb);
+
+inline void nghttp2_set_callback_get_padding(
+    node_nghttp2_session_callbacks* callbacks,
+    nghttp2_session_get_padding_cb cb);
+
+inline void nghttp2_set_callback_stream_get_trailers(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_stream_get_trailers_cb cb);
 
-UV_EXTERN void nghttp2_set_callback_on_settings(
+inline void nghttp2_set_callback_on_settings(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_session_on_settings_cb cb);
 
-UV_EXTERN void nghttp2_set_callback_stream_init(
+inline void nghttp2_set_callback_stream_init(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_on_stream_init_cb cb);
 
-UV_EXTERN void nghttp2_set_callback_stream_free(
+inline void nghttp2_set_callback_stream_free(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_on_stream_free_cb cb);
 
-UV_EXTERN void nghttp2_set_callback_send(
+inline void nghttp2_set_callback_send(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_session_send_cb cb);
 
-UV_EXTERN void nghttp2_set_callback_on_headers(
+inline void nghttp2_set_callback_on_headers(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_session_on_headers_cb cb);
 
-UV_EXTERN void nghttp2_set_callback_on_stream_close(
+inline void nghttp2_set_callback_on_stream_close(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_session_on_stream_close_cb cb);
 
-UV_EXTERN void nghttp2_set_callback_on_data_chunks(
+inline void nghttp2_set_callback_on_data_chunks(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_session_on_data_chunks_cb cb);
 
-UV_EXTERN int nghttp2_session_init(
+inline int nghttp2_session_init(
     uv_loop_t*,
     nghttp2_session_t* handle,
     const node_nghttp2_session_callbacks* cb,
@@ -275,91 +275,89 @@ UV_EXTERN int nghttp2_session_init(
     nghttp2_option* options = nullptr,
     nghttp2_mem* mem = nullptr);
 
-UV_EXTERN std::shared_ptr<nghttp2_stream_t> nghttp2_stream_init(
+inline std::shared_ptr<nghttp2_stream_t> nghttp2_stream_init(
     nghttp2_session_t* handle,
     int32_t id,
     nghttp2_headers_category category);
 
-UV_EXTERN int nghttp2_session_free(
-    nghttp2_session_t* handle,
-    bool forced = false);
+inline int nghttp2_session_free(nghttp2_session_t* handle);
 
-UV_EXTERN int nghttp2_session_is_alive(
+inline int nghttp2_session_is_alive(
     nghttp2_session_t* handle);
 
-UV_EXTERN ssize_t nghttp2_session_write(
+inline ssize_t nghttp2_session_write(
     nghttp2_session_t* handle,
     const uv_buf_t* bufs,
     unsigned int nbufs);
 
-UV_EXTERN int nghttp2_submit_settings(
+inline int nghttp2_submit_settings(
     nghttp2_session_t* handle,
     const nghttp2_settings_entry iv[],
     size_t niv);
 
-UV_EXTERN int nghttp2_stream_read_start(
+inline int nghttp2_stream_read_start(
     std::shared_ptr<nghttp2_stream_t> handle,
     nghttp2_stream_alloc_cb alloc_cb,
     nghttp2_stream_read_cb read_cb);
 
-UV_EXTERN int nghttp2_stream_read_stop(
+inline int nghttp2_stream_read_stop(
     nghttp2_session_t* handle);
 
-UV_EXTERN int nghttp2_stream_write(
+inline int nghttp2_stream_write(
     nghttp2_stream_write_t* req,
     std::shared_ptr<nghttp2_stream_t> handle,
     const uv_buf_t bufs[],
     unsigned int nbufs,
     nghttp2_stream_write_cb cb);
 
-UV_EXTERN int nghttp2_submit_response(
+inline int nghttp2_submit_response(
     std::shared_ptr<nghttp2_stream_t> handle,
-    const nghttp2_nv* nva,
-    size_t nvlen,
+    MaybeStackBuffer<nghttp2_nv>* nva,
     bool emptyPayload = false);
 
-UV_EXTERN int32_t nghttp2_submit_request(
+inline int32_t nghttp2_submit_request(
     nghttp2_session_t* handle,
     nghttp2_priority_spec* prispec,
-    const nghttp2_nv* nva,
-    size_t nvlen,
+    MaybeStackBuffer<nghttp2_nv>* nva,
     std::shared_ptr<nghttp2_stream_t>* assigned,
-    bool writable = true);
+    bool emptyPayload = true);
 
-UV_EXTERN int nghttp2_submit_info(
+inline int nghttp2_submit_info(
     std::shared_ptr<nghttp2_stream_t> handle,
-    const nghttp2_nv* nva,
-    size_t nvlen);
+    MaybeStackBuffer<nghttp2_nv>* nva);
 
-UV_EXTERN int nghttp2_submit_priority(
+inline int nghttp2_submit_priority(
     std::shared_ptr<nghttp2_stream_t> handle,
-    nghttp2_priority_spec* prispec);
+    nghttp2_priority_spec* prispec,
+    bool silent = false);
 
-UV_EXTERN int nghttp2_submit_rst_stream(
+inline int nghttp2_submit_rst_stream(
     std::shared_ptr<nghttp2_stream_t> handle,
     const uint32_t code);
 
-UV_EXTERN int nghttp2_submit_push_promise(
+inline int nghttp2_submit_push_promise(
     std::shared_ptr<nghttp2_stream_t> handle,
-    const nghttp2_nv* nv,
-    size_t nvlen,
+    MaybeStackBuffer<nghttp2_nv>* nva,
     std::shared_ptr<nghttp2_stream_t>* assigned,
     bool writable = true);
 
-UV_EXTERN int nghttp2_stream_shutdown(
+inline int nghttp2_stream_shutdown(
     std::shared_ptr<nghttp2_stream_t> handle);
 
-UV_EXTERN int nghttp2_stream_writable(
+inline int nghttp2_stream_writable(
     std::shared_ptr<nghttp2_stream_t> handle);
 
-UV_EXTERN void nghttp2_stream_read_start(
+inline void nghttp2_stream_read_start(
     std::shared_ptr<nghttp2_stream_t> handle);
 
-UV_EXTERN void nghttp2_stream_read_stop(
+inline void nghttp2_stream_read_stop(
     std::shared_ptr<nghttp2_stream_t> handle);
 
-UV_EXTERN bool nghttp2_stream_is_reading(
+inline bool nghttp2_stream_is_reading(
     std::shared_ptr<nghttp2_stream_t> handle);
+
+}  // namespace http2
+}  // namespace node
 
 #endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 

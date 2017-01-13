@@ -6,11 +6,11 @@
 
 const common = require('../common');
 const assert = require('assert');
-const http2 = require('http').HTTP2;
-const fs = require('fs');
+const http2 = require('http2');
 const path = require('path');
 const tls = require('tls');
 const net = require('net');
+const fs = require('fs');
 
 const options = {
   key: fs.readFileSync(
@@ -22,7 +22,7 @@ const options = {
 // There should not be any throws
 assert.doesNotThrow(() => {
 
-  const serverTLS = http2.createSecureServer(options, (req, res) => {});
+  const serverTLS = http2.createSecureServer(options, () => {});
 
   serverTLS.listen(0, common.mustCall(() => serverTLS.close()));
 
@@ -32,7 +32,7 @@ assert.doesNotThrow(() => {
 
 // There should not be any throws
 assert.doesNotThrow(() => {
-  const server = http2.createServer((req, res) => {});
+  const server = http2.createServer(options, () => {});
 
   server.listen(0, common.mustCall(() => server.close()));
 
@@ -64,7 +64,7 @@ assert.throws(() => http2.createSecureServer({}, []), reg);
 {
   let client;
   let timer;
-  const server = http2.createServer(() => {});
+  const server = http2.createServer({}, () => {});
   server.on('timeout', common.mustCall(() => {
     clearTimeout(timer);
     server.close();
