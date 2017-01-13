@@ -7,7 +7,8 @@
 #include "nghttp2/nghttp2.h"
 #include "uv.h"
 
-#include "node_http2_core.h"
+#include "node-http2-core.h"
+#include "node-http2-core-inl.h"
 #include "env.h"
 #include "env-inl.h"
 #include "node_crypto_bio.h"
@@ -46,6 +47,7 @@ using v8::Value;
 #define HTTP2_HEADER_AUTHORITY ":authority"
 #define HTTP2_HEADER_SCHEME ":scheme"
 #define HTTP2_HEADER_PATH ":path"
+#define HTTP2_HEADER_DATE "date"
 
 #define HTTP_STATUS_CODES(V)                                                  \
   V(CONTINUE, 100)                                                            \
@@ -117,6 +119,15 @@ HTTP_STATUS_CODES(V)
 #undef V
 };
 
+enum padding_strategy_type {
+  // No padding strategy
+  PADDING_STRATEGY_NONE,
+  // Padding will ensure all data frames are maxFrameSize
+  PADDING_STRATEGY_MAX,
+  // Padding will be determined via JS callback
+  PADDING_STRATEGY_CALLBACK
+};
+
 #define MIN(A, B) (A < B ? A : B)
 #define MAX(A, B) (A > B ? A : B)
 
@@ -142,8 +153,6 @@ enum http2_data_flags {
 
 #define THROW_AND_RETURN_UNLESS_HTTP2STREAM(env, obj)                         \
   THROW_AND_RETURN_UNLESS_(http2stream, "Http2Stream", env, obj);
-
-static const int kSimultaneousBufferCount = 10;
 
 #define NGHTTP2_ERROR_CODES(V)                                                 \
   V(NGHTTP2_ERR_INVALID_ARGUMENT)                                              \
@@ -202,7 +211,8 @@ const char* nghttp2_errname(int rv) {
   V(obj, "maxSendHeaderBlockLength", SetMaxSendHeaderBlockLength, Uint32)     \
   V(obj, "peerMaxConcurrentStreams", SetPeerMaxConcurrentStreams, Uint32)     \
   V(obj, "noHttpMessaging", SetNoHttpMessaging, Boolean)                      \
-  V(obj, "noRecvClientMagic", SetNoRecvClientMagic, Boolean)
+  V(obj, "noRecvClientMagic", SetNoRecvClientMagic, Boolean)                  \
+  V(obj, "paddingStrategy", SetPaddingStrategy, Uint32)
 
 #define SETTINGS(V)                                                     \
   V("headerTableSize", NGHTTP2_SETTINGS_HEADER_TABLE_SIZE,              \
@@ -226,9 +236,7 @@ const char* nghttp2_errname(int rv) {
 #define MIN_MAX_FRAME_SIZE DEFAULT_SETTINGS_MAX_FRAME_SIZE
 #define MAX_INITIAL_WINDOW_SIZE 2147483647
 
-class Http2Header;
 class Http2Session;
-class Http2Priority;
 
 class Http2Options {
  public:
@@ -240,6 +248,11 @@ class Http2Options {
 
   nghttp2_option* operator*() {
     return options_;
+  }
+
+  void SetPaddingStrategy(uint32_t val) {
+    CHECK_LE(val, PADDING_STRATEGY_CALLBACK);
+    padding_strategy_ = static_cast<padding_strategy_type>(val);
   }
 
   void SetMaxDeflateDynamicTableSize(size_t val) {
@@ -266,51 +279,13 @@ class Http2Options {
     nghttp2_option_set_peer_max_concurrent_streams(options_, val);
   }
 
+  padding_strategy_type GetPaddingStrategy() {
+    return padding_strategy_;
+  }
+
  private:
   nghttp2_option* options_;
-};
-
-class Http2Priority {
- public:
-  Http2Priority(int32_t parent,
-                int32_t weight,
-                bool exclusive = false) {
-    if (weight < 0) weight = NGHTTP2_DEFAULT_WEIGHT;
-    weight = MAX(MIN(weight, NGHTTP2_MAX_WEIGHT), NGHTTP2_MIN_WEIGHT);
-    nghttp2_priority_spec_init(&spec_, parent, weight, exclusive ? 1 : 0);
-  }
-  ~Http2Priority() {}
-
-  nghttp2_priority_spec* operator*() {
-    return &spec_;
-  }
- private:
-  nghttp2_priority_spec spec_;
-};
-
-class Http2Header : public nghttp2_nv {
- public:
-  Http2Header(const char* name_,
-              const char* value_,
-              size_t namelen_,
-              size_t valuelen_,
-              bool noindex = false) {
-    flags = NGHTTP2_NV_FLAG_NONE;
-    // flags = NGHTTP2_NV_FLAG_NO_COPY_NAME |
-    //         NGHTTP2_NV_FLAG_NO_COPY_VALUE;
-    if (noindex)
-      flags |= NGHTTP2_NV_FLAG_NO_INDEX;
-    name = Malloc<uint8_t>(namelen_);
-    value = Malloc<uint8_t>(valuelen_);
-    namelen = namelen_;
-    valuelen = valuelen_;
-    memcpy(this->name, name_, namelen);
-    memcpy(this->value, value_, valuelen);
-  }
-  ~Http2Header() {
-    free(name);
-    free(value);
-  }
+  padding_strategy_type padding_strategy_ = PADDING_STRATEGY_NONE;
 };
 
 static const size_t kAllocBufferSize = 64 * 1024;
@@ -337,13 +312,43 @@ class Http2Session : public AsyncWrap, public StreamBase {
     nghttp2_set_callback_stream_init(&cb, OnStreamInit);
     nghttp2_set_callback_stream_free(&cb, OnStreamFree);
     nghttp2_set_callback_stream_get_trailers(&cb, OnTrailers);
+    nghttp2_set_callbacks_free_session(&cb, OnFreeSession);
 
     Http2Options opts(env, options);
+
+    padding_strategy_ = opts.GetPaddingStrategy();
+    switch (padding_strategy_) {
+      case PADDING_STRATEGY_MAX:
+        nghttp2_set_callback_get_padding(&cb, OnMaxFrameSizePadding);
+        break;
+      case PADDING_STRATEGY_CALLBACK:
+        nghttp2_set_callback_get_padding(&cb, OnCallbackPadding);
+        break;
+      default:
+        // Fall through and do nothing. Do not set a padding callback
+        break;
+    }
+
     nghttp2_session_init(env->event_loop(), &handle_, &cb, type, *opts);
     stream_buf_.AllocateSufficientStorage(kAllocBufferSize);
   }
 
-  ~Http2Session() override {}
+  ~Http2Session() override {
+    CHECK_EQ(false, persistent().IsEmpty());
+    ClearWrap(object());
+    persistent().Reset();
+    CHECK_EQ(true, persistent().IsEmpty());
+  }
+
+  static void OnFreeSession(nghttp2_session_t* session);
+
+  static ssize_t OnMaxFrameSizePadding(nghttp2_session_t* session,
+                                       size_t frameLength,
+                                       size_t maxPayloadLen);
+
+  static ssize_t OnCallbackPadding(nghttp2_session_t* session,
+                                   size_t frame,
+                                   size_t maxPayloadLen);
 
   static void OnStreamAllocImpl(size_t suggested_size,
                                 uv_buf_t* buf,
@@ -373,7 +378,7 @@ class Http2Session : public AsyncWrap, public StreamBase {
   static void OnSettings(nghttp2_session_t* session);
   static void OnTrailers(nghttp2_session_t* handle,
                          std::shared_ptr<nghttp2_stream_t> stream,
-                         std::vector<nghttp2_nv>* trailers);
+                         MaybeStackBuffer<nghttp2_nv>* trailers);
 
   int DoWrite(WriteWrap* w, uv_buf_t* bufs, size_t count,
               uv_stream_t* send_handle) override;
@@ -410,7 +415,10 @@ class Http2Session : public AsyncWrap, public StreamBase {
   static void SubmitSettings(const FunctionCallbackInfo<Value>& args);
   static void SubmitRstStream(const FunctionCallbackInfo<Value>& args);
   static void SubmitResponse(const FunctionCallbackInfo<Value>& args);
-  static void SubmitInfo(const FunctionCallbackInfo<Value>& args);
+  static void SubmitRequest(const FunctionCallbackInfo<Value>& args);
+  static void SubmitPushPromise(const FunctionCallbackInfo<Value>& args);
+  static void SubmitPriority(const FunctionCallbackInfo<Value>& args);
+  static void SendHeaders(const FunctionCallbackInfo<Value>& args);
   static void ShutdownStream(const FunctionCallbackInfo<Value>& args);
   static void StreamWrite(const FunctionCallbackInfo<Value>& args);
   static void StreamReadStart(const FunctionCallbackInfo<Value>& args);
@@ -423,10 +431,6 @@ class Http2Session : public AsyncWrap, public StreamBase {
   template <get_setting fn>
   static void GetSettings(const FunctionCallbackInfo<Value>& args);
 
-  void Cleanup() {
-    nghttp2_session_free(&handle_, true);
-  }
-
   size_t self_size() const override {
     return sizeof(*this);
   }
@@ -435,17 +439,17 @@ class Http2Session : public AsyncWrap, public StreamBase {
     return &handle_;
   }
 
-  nghttp2_session_t handle_;
-
   char* stream_alloc() {
     return *stream_buf_;
   }
 
  private:
+  nghttp2_session_t handle_;
   StreamBase* stream_;
   StreamResource::Callback<StreamResource::AllocCb> prev_alloc_cb_;
   StreamResource::Callback<StreamResource::ReadCb> prev_read_cb_;
   MaybeStackBuffer<char, kAllocBufferSize> stream_buf_;
+  padding_strategy_type padding_strategy_ = PADDING_STRATEGY_NONE;
 };
 
 class SessionShutdownWrap : public ReqWrap<uv_idle_t> {
@@ -472,7 +476,13 @@ class SessionShutdownWrap : public ReqWrap<uv_idle_t> {
         lastStreamID_(lastStreamID),
         immediate_(immediate) {
     Wrap(req_wrap_obj, this);
-    // TODO: harvest the opaqueData
+    if (opaqueData->BooleanValue()) {
+      // TODO(jasnell): When immediate = true, there's no reason to copy
+      //                the opaque data.
+      SPREAD_BUFFER_ARG(opaqueData, data);
+      opaqueData_.AllocateSufficientStorage(data_length);
+      memcpy(*opaqueData_, data_data, data_length);
+    }
   }
   ~SessionShutdownWrap() {}
 
