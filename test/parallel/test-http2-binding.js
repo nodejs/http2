@@ -148,7 +148,8 @@ const expectedNGConstants = {
   NGHTTP2_FLAG_END_HEADERS: 4,
   NGHTTP2_FLAG_ACK: 1,
   NGHTTP2_FLAG_PADDED: 8,
-  NGHTTP2_FLAG_PRIORITY: 32
+  NGHTTP2_FLAG_PRIORITY: 32,
+  NGHTTP2_DEFAULT_WEIGHT: 16
 };
 
 const defaultSettings = {
@@ -160,12 +161,16 @@ const defaultSettings = {
 
 for (const name of Object.keys(constants)) {
   if (name.startsWith('HTTP_STATUS_')) {
-    assert.strictEqual(expectedStatusCodes[name], constants[name]);
+    assert.strictEqual(expectedStatusCodes[name], constants[name],
+                       `Expected status code match for ${name}`);
   } else if (name.startsWith('HTTP2_HEADER_')) {
-    assert.strictEqual(expectedHeaderNames[name], constants[name]);
+    assert.strictEqual(expectedHeaderNames[name], constants[name],
+                       `Expected header name match for ${name}`);
   } else if (name.startsWith('NGHTTP2_')) {
-    assert.strictEqual(expectedNGConstants[name], constants[name]);
+    assert.strictEqual(expectedNGConstants[name], constants[name],
+                       `Expected ng constant match for ${name}`);
   } else if (name.startsWith('DEFAULT_SETTINGS_')) {
-    assert.strictEqual(defaultSettings[name], constants[name]);
+    assert.strictEqual(defaultSettings[name], constants[name],
+                       `Expected default setting match for ${name}`);
   }
 }
