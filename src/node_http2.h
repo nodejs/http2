@@ -448,8 +448,8 @@ class Http2Session : public AsyncWrap, public StreamBase {
   StreamBase* stream_;
   StreamResource::Callback<StreamResource::AllocCb> prev_alloc_cb_;
   StreamResource::Callback<StreamResource::ReadCb> prev_read_cb_;
-  MaybeStackBuffer<char, kAllocBufferSize> stream_buf_;
   padding_strategy_type padding_strategy_ = PADDING_STRATEGY_NONE;
+  MaybeStackBuffer<char, kAllocBufferSize> stream_buf_;
 };
 
 class SessionShutdownWrap : public ReqWrap<uv_idle_t> {

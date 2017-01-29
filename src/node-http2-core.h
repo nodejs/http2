@@ -62,11 +62,11 @@ typedef void (*nghttp2_stream_write_cb)(
 
 
 struct nghttp2_stream_write_queue {
-  node::MaybeStackBuffer<uv_buf_t, kSimultaneousBufferCount> bufs;
   unsigned int nbufs = 0;
   nghttp2_stream_write_t* req = nullptr;
   nghttp2_stream_write_cb cb = nullptr;
   nghttp2_stream_write_queue* next = nullptr;
+  MaybeStackBuffer<uv_buf_t, kSimultaneousBufferCount> bufs;
 };
 
 struct nghttp2_header_list {
@@ -95,9 +95,9 @@ struct nghttp2_pending_data_chunks_cb {
 };
 
 struct nghttp2_pending_session_send_cb {
-  node::MaybeStackBuffer<uv_buf_t, kSimultaneousBufferCount> bufs;
   unsigned int nbufs = 0;
   size_t total = 0;
+  node::MaybeStackBuffer<uv_buf_t, kSimultaneousBufferCount> bufs;
 };
 
 struct nghttp2_pending_headers_cb {
@@ -214,8 +214,8 @@ struct nghttp2_data_chunk_s {
 };
 
 struct nghttp2_data_chunks_s {
-  node::MaybeStackBuffer<uv_buf_t, kSimultaneousBufferCount> buf;
   unsigned int nbufs = 0;
+  MaybeStackBuffer<uv_buf_t, kSimultaneousBufferCount> buf;
 };
 
 inline bool nghttp2_session_has_stream(
