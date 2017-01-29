@@ -44,10 +44,12 @@ struct DataChunkFreelistTraits : public DefaultFreelistTraits {
   }
 };
 
-static Freelist<nghttp2_pending_data_chunks_cb, 1000,
+#define FREELIST_MAX 1024
+
+static Freelist<nghttp2_pending_data_chunks_cb, FREELIST_MAX,
                 PendingDataChunksFreelistTraits> pending_data_chunks_free_list;
 
-static Freelist<nghttp2_data_chunk_t, 1000,
+static Freelist<nghttp2_data_chunk_t, FREELIST_MAX,
                 DataChunkFreelistTraits> data_chunk_free_list;
 
 struct StreamHandleFreelistTraits : public DefaultFreelistTraits {
@@ -144,8 +146,6 @@ struct PendingSessionFreelistTraits : public DefaultFreelistTraits {
     cb->nbufs = 0;
   }
 };
-
-#define FREELIST_MAX 1000
 
 static node::Freelist<nghttp2_stream_t, FREELIST_MAX,
                       StreamHandleFreelistTraits> stream_free_list;
