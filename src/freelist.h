@@ -30,7 +30,7 @@ class Freelist {
     } else {
       size_++;
       FreelistTraits::Reset(item);
-      list_item* li = new list_item;
+      list_item* li = Calloc<list_item>(1);
       li->item = item;
       if (head_ == nullptr) {
         head_ = li;
@@ -48,7 +48,7 @@ class Freelist {
       list_item* cur = head_;
       T* item = cur->item;
       head_ = cur->next;
-      delete cur;
+      free(cur);
       return item;
     } else {
       return FreelistTraits::template Alloc<T>();
