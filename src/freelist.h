@@ -3,17 +3,11 @@
 
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
+#include "util.h"
+
 namespace node {
 
-template <typename T> using AllocatorCallback = T* (*)();
-template <typename T> using ResetCallback = void (*)(T* item);
-template <typename T> using FreeCallback = void (*)(T* item);
-
-
-template <typename T, size_t MAX,
-          AllocatorCallback<T> ALLOC,
-          ResetCallback<T> RESET,
-          FreeCallback<T> FREE>
+template <typename T, size_t kMaximumLength, typename FreelistTraits>
 class Freelist {
  public:
   typedef struct list_item {
@@ -26,16 +20,16 @@ class Freelist {
     while (head_ != nullptr) {
       list_item* item = head_;
       head_ = item->next;
-      FREE(item->item);
+      FreelistTraits::Free(item->item);
     }
   }
 
   void push(T* item) {
-    if (size_ > MAX) {
-      FREE(item);
+    if (size_ > kMaximumLength) {
+      FreelistTraits::Free(item);
     } else {
       size_++;
-      RESET(item);
+      FreelistTraits::Reset(item);
       list_item* li = new list_item;
       li->item = item;
       if (head_ == nullptr) {
@@ -57,15 +51,30 @@ class Freelist {
       delete cur;
       return item;
     } else {
-      return ALLOC();
+      return FreelistTraits::template Alloc<T>();
     }
   }
 
  private:
-  const size_t max_ = MAX;
   size_t size_ = 0;
   list_item* head_ = nullptr;
   list_item* tail_ = nullptr;
+};
+
+struct DefaultFreelistTraits {
+  template <typename T>
+  static T* Alloc() {
+    return Calloc<T>(1);
+  }
+
+  template <typename T>
+  static void Free(T* item) {
+    free(item);
+  }
+
+  template <typename T>
+  static void Reset(T* item) {
+  }
 };
 
 }  // namespace node
