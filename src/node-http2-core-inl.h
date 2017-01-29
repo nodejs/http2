@@ -26,163 +26,157 @@ namespace http2 {
     }                                                                         \
   } while (0);
 
-
-template <typename T>
-inline T* Allocator() {
-  return new T;
-}
-
-template <typename T>
-inline void Dealloc(T* item) {
-  delete item;
-}
-
-inline void PendingDataChunksReset(nghttp2_pending_data_chunks_cb* cb) {
-  cb->handle.reset();
-  cb->head = nullptr;
-  cb->tail = nullptr;
-  cb->nbufs = 0;
-  cb->flags = NGHTTP2_FLAG_NONE;
-}
-
-inline void DataChunkReset(nghttp2_data_chunk_t* chunk) {
-  chunk->next = nullptr;
-}
-
-
-static node::Freelist<nghttp2_pending_data_chunks_cb, 1000,
-                      Allocator<nghttp2_pending_data_chunks_cb>,
-                      PendingDataChunksReset,
-                      Dealloc<nghttp2_pending_data_chunks_cb>>
-                        pending_data_chunks_free_list;
-
-static node::Freelist<nghttp2_data_chunk_t, 1000,
-                      Allocator<nghttp2_data_chunk_t>,
-                      DataChunkReset,
-                      Dealloc<nghttp2_data_chunk_t>> data_chunk_free_list;
-
-inline void StreamHandleReset(nghttp2_stream_t* handle) {
-  if (handle->current_data_chunks_cb != nullptr) {
-    nghttp2_pending_data_chunks_cb* chunks =
-      handle->current_data_chunks_cb;
-    while (chunks->head != nullptr) {
-      nghttp2_data_chunk_t* chunk = chunks->head;
-      chunks->head = chunk->next;
-      delete[] chunk->buf.base;
-      data_chunk_free_list.push(chunk);
-    }
-    pending_data_chunks_free_list.push(chunks);
+struct PendingDataChunksFreelistTraits : public DefaultFreelistTraits {
+  template<typename T>
+  static void Reset(T* cb) {
+    cb->handle.reset();
+    cb->head = nullptr;
+    cb->tail = nullptr;
+    cb->nbufs = 0;
+    cb->flags = NGHTTP2_FLAG_NONE;
   }
-  handle->session = nullptr;
-  handle->id = 0;
-  handle->flags = NGHTTP2_STREAM_FLAG_NONE;
-  handle->queue_head = nullptr;
-  handle->queue_tail = nullptr;
-  handle->queue_head_index = 0;
-  handle->queue_head_offset = 0;
-  handle->current_headers_head = nullptr;
-  handle->current_headers_tail = nullptr;
-  handle->current_headers_category = NGHTTP2_HCAT_HEADERS;
-  handle->current_data_chunks_cb = nullptr;
-  handle->reading = -1;
-  handle->prev_local_window_size = 65535;
-}
+};
 
-inline void CbListReset(nghttp2_pending_cb_list* item) {
-  item->type = NGHTTP2_CB_NONE;
-  item->cb = nullptr;
-  item->next = nullptr;
-}
+struct DataChunkFreelistTraits : public DefaultFreelistTraits {
+  template<typename T>
+  static void Reset(T* chunk) {
+    chunk->next = nullptr;
+  }
+};
 
-inline void HeaderListReset(nghttp2_header_list* item) {
-  item->name = nullptr;
-  item->value = nullptr;
-  item->next = nullptr;
-}
+#define FREELIST_MAX 1024
 
-inline void PendingSettingsReset(nghttp2_pending_settings_cb* cb) {}
+static Freelist<nghttp2_pending_data_chunks_cb, FREELIST_MAX,
+                PendingDataChunksFreelistTraits> pending_data_chunks_free_list;
 
-inline void PendingStreamCloseReset(nghttp2_pending_stream_close_cb* cb) {
-  cb->handle.reset();
-  cb->error_code = NGHTTP2_NO_ERROR;
-}
+static Freelist<nghttp2_data_chunk_t, FREELIST_MAX,
+                DataChunkFreelistTraits> data_chunk_free_list;
 
-inline void PendingHeadersReset(nghttp2_pending_headers_cb* cb) {
-  cb->handle.reset();
-  cb->category = NGHTTP2_HCAT_REQUEST;
-  cb->headers = nullptr;
-  cb->flags = NGHTTP2_FLAG_NONE;
-}
+struct StreamHandleFreelistTraits : public DefaultFreelistTraits {
+  template<typename T>
+  static void Reset(T* handle) {
+    if (handle->current_data_chunks_cb != nullptr) {
+      nghttp2_pending_data_chunks_cb* chunks =
+        handle->current_data_chunks_cb;
+      while (chunks->head != nullptr) {
+        nghttp2_data_chunk_t* chunk = chunks->head;
+        chunks->head = chunk->next;
+        delete[] chunk->buf.base;
+        data_chunk_free_list.push(chunk);
+      }
+      pending_data_chunks_free_list.push(chunks);
+    }
+    handle->session = nullptr;
+    handle->id = 0;
+    handle->flags = NGHTTP2_STREAM_FLAG_NONE;
+    handle->queue_head = nullptr;
+    handle->queue_tail = nullptr;
+    handle->queue_head_index = 0;
+    handle->queue_head_offset = 0;
+    handle->current_headers_head = nullptr;
+    handle->current_headers_tail = nullptr;
+    handle->current_headers_category = NGHTTP2_HCAT_HEADERS;
+    handle->current_data_chunks_cb = nullptr;
+    handle->reading = -1;
+    handle->prev_local_window_size = 65535;
+  }
+};
 
-inline nghttp2_data_chunks_t* DataChunksAllocate() {
-  nghttp2_data_chunks_t* chunks = new nghttp2_data_chunks_t;
-  chunks->buf.AllocateSufficientStorage(kSimultaneousBufferCount);
-  return chunks;
-}
+struct CbListFreelistTraits : public DefaultFreelistTraits {
+  template<typename T>
+  static void Reset(T* item) {
+    item->type = NGHTTP2_CB_NONE;
+    item->cb = nullptr;
+    item->next = nullptr;
+  }
+};
 
-inline void DataChunksReset(nghttp2_data_chunks_t* chunks) {
-  chunks->nbufs = 0;
-}
+struct HeaderListFreelistTraits : public DefaultFreelistTraits {
+  template<typename T>
+  static void Reset(T* item) {
+    item->name = nullptr;
+    item->value = nullptr;
+    item->next = nullptr;
+  }
+};
 
-inline nghttp2_pending_session_send_cb* PendingSessionSendAllocate() {
-  nghttp2_pending_session_send_cb* cb = new nghttp2_pending_session_send_cb;
-  cb->bufs.AllocateSufficientStorage(kSimultaneousBufferCount);
-  return cb;
-}
+struct PendingStreamCloseFreelistTraits : public DefaultFreelistTraits {
+  template<typename T>
+  static void Reset(T* cb) {
+    cb->handle.reset();
+    cb->error_code = NGHTTP2_NO_ERROR;
+  }
+};
 
-inline void PendingSessionSendReset(nghttp2_pending_session_send_cb* cb) {
-  cb->total = 0;
-  cb->nbufs = 0;
-}
+struct PendingHeadersFreelistTraits : public DefaultFreelistTraits {
+  template<typename T>
+  static void Reset(T* cb) {
+    cb->handle.reset();
+    cb->category = NGHTTP2_HCAT_REQUEST;
+    cb->headers = nullptr;
+    cb->flags = NGHTTP2_FLAG_NONE;
+  }
+};
 
-#define FREELIST_MAX 1000
+struct DataChunksFreelistTraits : public DefaultFreelistTraits {
+  template <typename T>
+  static T* Alloc() {
+    nghttp2_data_chunks_t* chunks = Calloc<nghttp2_data_chunks_t>(1);
+    chunks->buf.AllocateSufficientStorage(kSimultaneousBufferCount);
+    return chunks;
+  }
+
+  template<typename T>
+  static void Reset(T* chunks) {
+    chunks->nbufs = 0;
+  }
+};
+
+struct PendingSessionFreelistTraits : public DefaultFreelistTraits {
+  template <typename T>
+  static T* Alloc() {
+    auto cb = Calloc<nghttp2_pending_session_send_cb>(1);
+    cb->bufs.AllocateSufficientStorage(kSimultaneousBufferCount);
+    return cb;
+  }
+
+  template<typename T>
+  static void Reset(T* cb) {
+    cb->total = 0;
+    cb->nbufs = 0;
+  }
+};
 
 static node::Freelist<nghttp2_stream_t, FREELIST_MAX,
-                      Allocator<nghttp2_stream_t>,
-                      StreamHandleReset,
-                      Dealloc<nghttp2_stream_t>> stream_free_list;
+                      StreamHandleFreelistTraits> stream_free_list;
 
 static node::Freelist<nghttp2_pending_cb_list, FREELIST_MAX,
-                      Allocator<nghttp2_pending_cb_list>,
-                      CbListReset,
-                      Dealloc<nghttp2_pending_cb_list>> cb_free_list;
+                      CbListFreelistTraits> cb_free_list;
 
 static node::Freelist<nghttp2_header_list, FREELIST_MAX,
-                      Allocator<nghttp2_header_list>,
-                      HeaderListReset,
-                      Dealloc<nghttp2_header_list>> header_free_list;
+                      HeaderListFreelistTraits> header_free_list;
 
 static node::Freelist<nghttp2_pending_settings_cb, FREELIST_MAX,
-                      Allocator<nghttp2_pending_settings_cb>,
-                      PendingSettingsReset,
-                      Dealloc<nghttp2_pending_settings_cb>>
+                      DefaultFreelistTraits>
                         pending_settings_free_list;
 
 static node::Freelist<nghttp2_pending_stream_close_cb, FREELIST_MAX,
-                      Allocator<nghttp2_pending_stream_close_cb>,
-                      PendingStreamCloseReset,
-                      Dealloc<nghttp2_pending_stream_close_cb>>
+                      PendingStreamCloseFreelistTraits>
                         pending_stream_close_free_list;
 
 static node::Freelist<nghttp2_pending_headers_cb, FREELIST_MAX,
-                      Allocator<nghttp2_pending_headers_cb>,
-                      PendingHeadersReset,
-                      Dealloc<nghttp2_pending_headers_cb>>
+                      PendingHeadersFreelistTraits>
                         pending_headers_free_list;
 
 static node::Freelist<nghttp2_data_chunks_t, FREELIST_MAX,
-                      DataChunksAllocate,
-                      DataChunksReset,
-                      Dealloc<nghttp2_data_chunks_t>> data_chunks_free_list;
+                      DataChunksFreelistTraits> data_chunks_free_list;
 
 static node::Freelist<nghttp2_pending_session_send_cb, FREELIST_MAX,
-                      PendingSessionSendAllocate,
-                      PendingSessionSendReset,
-                      Dealloc<nghttp2_pending_session_send_cb>>
+                      PendingSessionFreelistTraits>
                         pending_session_send_free_list;
 
 inline bool nghttp2_session_has_stream(nghttp2_session_t* handle, int32_t id) {
-  assert(handle);
+  assert(handle != nullptr);
   auto s = handle->streams.find(id);
   return s != handle->streams.end();
 }
@@ -191,7 +185,7 @@ inline bool nghttp2_session_find_stream(
     nghttp2_session_t* handle,
     int32_t id,
     std::shared_ptr<nghttp2_stream_t>* stream_handle) {
-  assert(handle);
+  assert(handle != nullptr);
   auto s = handle->streams.find(id);
   if (s != handle->streams.end()) {
     *stream_handle = s->second;
@@ -204,76 +198,76 @@ inline bool nghttp2_session_find_stream(
 inline void nghttp2_set_callbacks_free_session(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_free_session_cb cb) {
-  assert(callbacks);
+  assert(callbacks != nullptr);
   callbacks->on_free_session = cb;
 }
 
 inline void nghttp2_set_callback_stream_get_trailers(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_stream_get_trailers_cb cb) {
-  assert(callbacks);
+  assert(callbacks != nullptr);
   callbacks->on_get_trailers = cb;
 }
 
 inline void nghttp2_set_callback_get_padding(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_session_get_padding_cb cb) {
-  assert(callbacks);
+  assert(callbacks != nullptr);
   callbacks->on_get_padding = cb;
 }
 
 inline void nghttp2_set_callback_send(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_session_send_cb cb) {
-  assert(callbacks);
+  assert(callbacks != nullptr);
   callbacks->send = cb;
 }
 
 inline void nghttp2_set_callback_on_headers(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_session_on_headers_cb cb) {
-  assert(callbacks);
+  assert(callbacks != nullptr);
   callbacks->on_headers = cb;
 }
 
 inline void nghttp2_set_callback_on_stream_close(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_session_on_stream_close_cb cb) {
-  assert(callbacks);
+  assert(callbacks != nullptr);
   callbacks->on_stream_close = cb;
 }
 
 inline void nghttp2_set_callback_on_data_chunks(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_session_on_data_chunks_cb cb) {
-  assert(callbacks);
+  assert(callbacks != nullptr);
   callbacks->on_data_chunks = cb;
 }
 
 inline void nghttp2_set_callback_stream_init(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_on_stream_init_cb cb) {
-  assert(callbacks);
+  assert(callbacks != nullptr);
   callbacks->stream_init = cb;
 }
 
 inline void nghttp2_set_callback_stream_free(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_on_stream_free_cb cb) {
-  assert(callbacks);
+  assert(callbacks != nullptr);
   callbacks->stream_free = cb;
 }
 
 inline void nghttp2_set_callback_on_settings(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_session_on_settings_cb cb) {
-  assert(callbacks);
+  assert(callbacks != nullptr);
   callbacks->on_settings = cb;
 }
 
 inline void nghttp2_queue_pending_callback(nghttp2_session_t* handle,
                                            nghttp2_pending_cb_list* item) {
-  assert(handle);
+  assert(handle != nullptr);
   LINKED_LIST_ADD(handle->pending_callbacks, item);
 }
 
@@ -362,8 +356,8 @@ inline void nghttp2_free_headers_list(nghttp2_pending_headers_cb* cb) {
 inline void nghttp2_session_drain_headers_cb(
     nghttp2_session_t* handle,
     nghttp2_pending_headers_cb* cb) {
-  assert(handle);
-  assert(cb);
+  assert(handle != nullptr);
+  assert(cb != nullptr);
   if (handle->callbacks.on_headers != nullptr) {
     handle->callbacks.on_headers(handle,
                                  cb->handle,
@@ -378,8 +372,8 @@ inline void nghttp2_session_drain_headers_cb(
 inline void nghttp2_session_drain_stream_close_cb(
     nghttp2_session_t* handle,
     nghttp2_pending_stream_close_cb* cb) {
-  assert(handle);
-  assert(cb);
+  assert(handle != nullptr);
+  assert(cb != nullptr);
   if (handle->callbacks.on_stream_close != nullptr) {
     handle->callbacks.on_stream_close(handle,
                                       cb->handle->id,
@@ -392,8 +386,8 @@ inline void nghttp2_session_drain_stream_close_cb(
 inline void nghttp2_session_drain_send_cb(
     nghttp2_session_t* handle,
     nghttp2_pending_session_send_cb* cb) {
-  assert(handle);
-  assert(cb);
+  assert(handle != nullptr);
+  assert(cb != nullptr);
   if (handle->callbacks.send != nullptr) {
     handle->callbacks.send(handle, *cb->bufs, cb->nbufs, cb->total);
   }
@@ -413,8 +407,8 @@ void DeleteDataChunks(nghttp2_data_chunks_t* chunks) {
 inline void nghttp2_session_drain_data_chunks(
     nghttp2_session_t* handle,
     nghttp2_pending_data_chunks_cb* cb) {
-  assert(handle);
-  assert(cb);
+  assert(handle != nullptr);
+  assert(cb != nullptr);
   std::shared_ptr<nghttp2_data_chunks_t> chunks;
   unsigned int n = 0;
   size_t amount = 0;
@@ -446,8 +440,8 @@ inline void nghttp2_session_drain_data_chunks(
 inline void nghttp2_session_drain_settings(
     nghttp2_session_t* handle,
     nghttp2_pending_settings_cb* cb) {
-  assert(handle);
-  assert(cb);
+  assert(handle != nullptr);
+  assert(cb != nullptr);
   if (handle->callbacks.on_settings != nullptr) {
     handle->callbacks.on_settings(handle);
   }
@@ -455,7 +449,7 @@ inline void nghttp2_session_drain_settings(
 }
 
 inline void nghttp2_session_drain_callbacks(nghttp2_session_t* handle) {
-  assert(handle);
+  assert(handle != nullptr);
   while (handle->ready_callbacks_head != nullptr) {
     nghttp2_pending_cb_list* item = handle->ready_callbacks_head;
     switch (item->type) {
@@ -521,7 +515,7 @@ inline void nghttp2_session_drain_send(nghttp2_session_t* handle) {
 }
 
 inline void nghttp2_session_send_and_make_ready(nghttp2_session_t* handle) {
-  assert(handle);
+  assert(handle != nullptr);
 
   while (nghttp2_session_want_write(handle->session)) {
     nghttp2_session_drain_send(handle);
@@ -710,7 +704,7 @@ ssize_t OnSelectPadding(nghttp2_session* session,
                         size_t maxPayloadLen,
                         void* user_data) {
   nghttp2_session_t* handle = static_cast<nghttp2_session_t*>(user_data);
-  assert(handle->get_padding);
+  assert(handle->get_padding != nullptr);
   return handle->get_padding(handle, frame->hd.length, maxPayloadLen);
 }
 
@@ -818,8 +812,8 @@ inline int nghttp2_session_is_alive(nghttp2_session_t* handle) {
 }
 
 inline int nghttp2_session_free(nghttp2_session_t* handle) {
-  assert(handle);
-  assert(handle->session);
+  assert(handle != nullptr);
+  assert(handle->session != nullptr);
   assert(handle->pending_callbacks_head == nullptr);
   assert(handle->pending_callbacks_tail == nullptr);
   assert(handle->ready_callbacks_head == nullptr);
