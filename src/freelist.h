@@ -21,6 +21,7 @@ class Freelist {
       list_item* item = head_;
       head_ = item->next;
       FreelistTraits::Free(item->item);
+      free(item);
     }
   }
 
