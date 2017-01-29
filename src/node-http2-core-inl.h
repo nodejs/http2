@@ -176,7 +176,7 @@ static node::Freelist<nghttp2_pending_session_send_cb, FREELIST_MAX,
                         pending_session_send_free_list;
 
 inline bool nghttp2_session_has_stream(nghttp2_session_t* handle, int32_t id) {
-  assert(handle);
+  assert(handle != nullptr);
   auto s = handle->streams.find(id);
   return s != handle->streams.end();
 }
@@ -185,7 +185,7 @@ inline bool nghttp2_session_find_stream(
     nghttp2_session_t* handle,
     int32_t id,
     std::shared_ptr<nghttp2_stream_t>* stream_handle) {
-  assert(handle);
+  assert(handle != nullptr);
   auto s = handle->streams.find(id);
   if (s != handle->streams.end()) {
     *stream_handle = s->second;
@@ -198,76 +198,76 @@ inline bool nghttp2_session_find_stream(
 inline void nghttp2_set_callbacks_free_session(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_free_session_cb cb) {
-  assert(callbacks);
+  assert(callbacks != nullptr);
   callbacks->on_free_session = cb;
 }
 
 inline void nghttp2_set_callback_stream_get_trailers(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_stream_get_trailers_cb cb) {
-  assert(callbacks);
+  assert(callbacks != nullptr);
   callbacks->on_get_trailers = cb;
 }
 
 inline void nghttp2_set_callback_get_padding(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_session_get_padding_cb cb) {
-  assert(callbacks);
+  assert(callbacks != nullptr);
   callbacks->on_get_padding = cb;
 }
 
 inline void nghttp2_set_callback_send(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_session_send_cb cb) {
-  assert(callbacks);
+  assert(callbacks != nullptr);
   callbacks->send = cb;
 }
 
 inline void nghttp2_set_callback_on_headers(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_session_on_headers_cb cb) {
-  assert(callbacks);
+  assert(callbacks != nullptr);
   callbacks->on_headers = cb;
 }
 
 inline void nghttp2_set_callback_on_stream_close(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_session_on_stream_close_cb cb) {
-  assert(callbacks);
+  assert(callbacks != nullptr);
   callbacks->on_stream_close = cb;
 }
 
 inline void nghttp2_set_callback_on_data_chunks(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_session_on_data_chunks_cb cb) {
-  assert(callbacks);
+  assert(callbacks != nullptr);
   callbacks->on_data_chunks = cb;
 }
 
 inline void nghttp2_set_callback_stream_init(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_on_stream_init_cb cb) {
-  assert(callbacks);
+  assert(callbacks != nullptr);
   callbacks->stream_init = cb;
 }
 
 inline void nghttp2_set_callback_stream_free(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_on_stream_free_cb cb) {
-  assert(callbacks);
+  assert(callbacks != nullptr);
   callbacks->stream_free = cb;
 }
 
 inline void nghttp2_set_callback_on_settings(
     node_nghttp2_session_callbacks* callbacks,
     nghttp2_session_on_settings_cb cb) {
-  assert(callbacks);
+  assert(callbacks != nullptr);
   callbacks->on_settings = cb;
 }
 
 inline void nghttp2_queue_pending_callback(nghttp2_session_t* handle,
                                            nghttp2_pending_cb_list* item) {
-  assert(handle);
+  assert(handle != nullptr);
   LINKED_LIST_ADD(handle->pending_callbacks, item);
 }
 
@@ -356,8 +356,8 @@ inline void nghttp2_free_headers_list(nghttp2_pending_headers_cb* cb) {
 inline void nghttp2_session_drain_headers_cb(
     nghttp2_session_t* handle,
     nghttp2_pending_headers_cb* cb) {
-  assert(handle);
-  assert(cb);
+  assert(handle != nullptr);
+  assert(cb != nullptr);
   if (handle->callbacks.on_headers != nullptr) {
     handle->callbacks.on_headers(handle,
                                  cb->handle,
@@ -372,8 +372,8 @@ inline void nghttp2_session_drain_headers_cb(
 inline void nghttp2_session_drain_stream_close_cb(
     nghttp2_session_t* handle,
     nghttp2_pending_stream_close_cb* cb) {
-  assert(handle);
-  assert(cb);
+  assert(handle != nullptr);
+  assert(cb != nullptr);
   if (handle->callbacks.on_stream_close != nullptr) {
     handle->callbacks.on_stream_close(handle,
                                       cb->handle->id,
@@ -386,8 +386,8 @@ inline void nghttp2_session_drain_stream_close_cb(
 inline void nghttp2_session_drain_send_cb(
     nghttp2_session_t* handle,
     nghttp2_pending_session_send_cb* cb) {
-  assert(handle);
-  assert(cb);
+  assert(handle != nullptr);
+  assert(cb != nullptr);
   if (handle->callbacks.send != nullptr) {
     handle->callbacks.send(handle, *cb->bufs, cb->nbufs, cb->total);
   }
@@ -407,8 +407,8 @@ void DeleteDataChunks(nghttp2_data_chunks_t* chunks) {
 inline void nghttp2_session_drain_data_chunks(
     nghttp2_session_t* handle,
     nghttp2_pending_data_chunks_cb* cb) {
-  assert(handle);
-  assert(cb);
+  assert(handle != nullptr);
+  assert(cb != nullptr);
   std::shared_ptr<nghttp2_data_chunks_t> chunks;
   unsigned int n = 0;
   size_t amount = 0;
@@ -440,8 +440,8 @@ inline void nghttp2_session_drain_data_chunks(
 inline void nghttp2_session_drain_settings(
     nghttp2_session_t* handle,
     nghttp2_pending_settings_cb* cb) {
-  assert(handle);
-  assert(cb);
+  assert(handle != nullptr);
+  assert(cb != nullptr);
   if (handle->callbacks.on_settings != nullptr) {
     handle->callbacks.on_settings(handle);
   }
@@ -449,7 +449,7 @@ inline void nghttp2_session_drain_settings(
 }
 
 inline void nghttp2_session_drain_callbacks(nghttp2_session_t* handle) {
-  assert(handle);
+  assert(handle != nullptr);
   while (handle->ready_callbacks_head != nullptr) {
     nghttp2_pending_cb_list* item = handle->ready_callbacks_head;
     switch (item->type) {
@@ -515,7 +515,7 @@ inline void nghttp2_session_drain_send(nghttp2_session_t* handle) {
 }
 
 inline void nghttp2_session_send_and_make_ready(nghttp2_session_t* handle) {
-  assert(handle);
+  assert(handle != nullptr);
 
   while (nghttp2_session_want_write(handle->session)) {
     nghttp2_session_drain_send(handle);
@@ -704,7 +704,7 @@ ssize_t OnSelectPadding(nghttp2_session* session,
                         size_t maxPayloadLen,
                         void* user_data) {
   nghttp2_session_t* handle = static_cast<nghttp2_session_t*>(user_data);
-  assert(handle->get_padding);
+  assert(handle->get_padding != nullptr);
   return handle->get_padding(handle, frame->hd.length, maxPayloadLen);
 }
 
@@ -812,8 +812,8 @@ inline int nghttp2_session_is_alive(nghttp2_session_t* handle) {
 }
 
 inline int nghttp2_session_free(nghttp2_session_t* handle) {
-  assert(handle);
-  assert(handle->session);
+  assert(handle != nullptr);
+  assert(handle->session != nullptr);
   assert(handle->pending_callbacks_head == nullptr);
   assert(handle->pending_callbacks_tail == nullptr);
   assert(handle->ready_callbacks_head == nullptr);
