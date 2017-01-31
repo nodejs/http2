@@ -22,7 +22,8 @@ typedef struct nghttp2_data_chunk_s nghttp2_data_chunk_t;
 typedef struct nghttp2_data_chunks_s nghttp2_data_chunks_t;
 typedef struct node_nghttp2_session_callbacks_s node_nghttp2_session_callbacks;
 
-static const int kSimultaneousBufferCount = 10;
+#define MAX_BUFFER_COUNT 10
+#define SEND_BUFFER_RECOMMENDED_SIZE 4096
 
 typedef enum {
   NGHTTP2_SESSION_SERVER,
@@ -66,7 +67,7 @@ struct nghttp2_stream_write_queue {
   nghttp2_stream_write_t* req = nullptr;
   nghttp2_stream_write_cb cb = nullptr;
   nghttp2_stream_write_queue* next = nullptr;
-  MaybeStackBuffer<uv_buf_t, kSimultaneousBufferCount> bufs;
+  MaybeStackBuffer<uv_buf_t, MAX_BUFFER_COUNT> bufs;
 };
 
 struct nghttp2_header_list {
@@ -95,9 +96,8 @@ struct nghttp2_pending_data_chunks_cb {
 };
 
 struct nghttp2_pending_session_send_cb {
-  unsigned int nbufs = 0;
-  size_t total = 0;
-  node::MaybeStackBuffer<uv_buf_t, kSimultaneousBufferCount> bufs;
+  size_t length;
+  uv_buf_t* buf;
 };
 
 struct nghttp2_pending_headers_cb {
@@ -126,9 +126,8 @@ typedef void (*nghttp2_on_stream_free_cb)(
     nghttp2_stream_t* stream);
 typedef void (*nghttp2_session_send_cb)(
     nghttp2_session_t* session,
-    const uv_buf_t* bufs,
-    unsigned int nbufs,
-    size_t total);
+    uv_buf_t* buf,
+    size_t length);
 typedef void (*nghttp2_session_on_headers_cb)(
     nghttp2_session_t* session,
     std::shared_ptr<nghttp2_stream_t> stream,
@@ -155,6 +154,9 @@ typedef ssize_t (*nghttp2_session_get_padding_cb)(
     size_t maxFrameLength);
 typedef void (*nghttp2_free_session_cb)(
     nghttp2_session_t* handle);
+typedef uv_buf_t* (*nghttp2_allocate_send_buf_cb)(
+    nghttp2_session_t* session,
+    size_t suggested_size);
 
 
 struct node_nghttp2_session_callbacks_s {
@@ -168,12 +170,13 @@ struct node_nghttp2_session_callbacks_s {
   nghttp2_session_get_padding_cb on_get_padding = nullptr;
   nghttp2_stream_get_trailers_cb on_get_trailers = nullptr;
   nghttp2_free_session_cb on_free_session = nullptr;
+  nghttp2_allocate_send_buf_cb allocate_send_buf = nullptr;
 };
 
 // Handle Types
 struct nghttp2_session_s {
   uv_loop_t* loop;
-  uv_idle_t idler;
+  uv_prepare_t prep;
   nghttp2_session* session;
   nghttp2_session_type session_type;
   node_nghttp2_session_callbacks callbacks;
@@ -215,7 +218,7 @@ struct nghttp2_data_chunk_s {
 
 struct nghttp2_data_chunks_s {
   unsigned int nbufs = 0;
-  MaybeStackBuffer<uv_buf_t, kSimultaneousBufferCount> buf;
+  MaybeStackBuffer<uv_buf_t, MAX_BUFFER_COUNT> buf;
 };
 
 inline bool nghttp2_session_has_stream(
@@ -226,6 +229,10 @@ inline bool nghttp2_session_find_stream(
     nghttp2_session_t* handle,
     int32_t id,
     std::shared_ptr<nghttp2_stream_t>* stream_handle);
+
+inline void nghttp2_set_callbacks_allocate_send_buf(
+    node_nghttp2_session_callbacks* callbacks,
+    nghttp2_allocate_send_buf_cb cb);
 
 inline void nghttp2_set_callbacks_free_session(
     node_nghttp2_session_callbacks* callbacks,
@@ -312,19 +319,22 @@ inline int nghttp2_stream_write(
 
 inline int nghttp2_submit_response(
     std::shared_ptr<nghttp2_stream_t> handle,
-    MaybeStackBuffer<nghttp2_nv>* nva,
+    nghttp2_nv* nva,
+    size_t len,
     bool emptyPayload = false);
 
 inline int32_t nghttp2_submit_request(
     nghttp2_session_t* handle,
     nghttp2_priority_spec* prispec,
-    MaybeStackBuffer<nghttp2_nv>* nva,
+    nghttp2_nv* nva,
+    size_t len,
     std::shared_ptr<nghttp2_stream_t>* assigned,
     bool emptyPayload = true);
 
 inline int nghttp2_submit_info(
     std::shared_ptr<nghttp2_stream_t> handle,
-    MaybeStackBuffer<nghttp2_nv>* nva);
+    nghttp2_nv* nva,
+    size_t len);
 
 inline int nghttp2_submit_priority(
     std::shared_ptr<nghttp2_stream_t> handle,
@@ -337,7 +347,8 @@ inline int nghttp2_submit_rst_stream(
 
 inline int nghttp2_submit_push_promise(
     std::shared_ptr<nghttp2_stream_t> handle,
-    MaybeStackBuffer<nghttp2_nv>* nva,
+    nghttp2_nv* nva,
+    size_t len,
     std::shared_ptr<nghttp2_stream_t>* assigned,
     bool writable = true);
 
