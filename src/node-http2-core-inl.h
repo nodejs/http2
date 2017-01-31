@@ -122,7 +122,7 @@ struct DataChunksFreelistTraits : public DefaultFreelistTraits {
   template <typename T>
   static T* Alloc() {
     nghttp2_data_chunks_t* chunks = Calloc<nghttp2_data_chunks_t>(1);
-    chunks->buf.AllocateSufficientStorage(kSimultaneousBufferCount);
+    chunks->buf.AllocateSufficientStorage(MAX_BUFFER_COUNT);
     return chunks;
   }
 
@@ -136,14 +136,13 @@ struct PendingSessionFreelistTraits : public DefaultFreelistTraits {
   template <typename T>
   static T* Alloc() {
     auto cb = Calloc<nghttp2_pending_session_send_cb>(1);
-    cb->bufs.AllocateSufficientStorage(kSimultaneousBufferCount);
     return cb;
   }
 
   template<typename T>
   static void Reset(T* cb) {
-    cb->total = 0;
-    cb->nbufs = 0;
+    cb->length = 0;
+    cb->buf = nullptr;
   }
 };
 
@@ -193,6 +192,13 @@ inline bool nghttp2_session_find_stream(
   } else {
     return false;
   }
+}
+
+inline void nghttp2_set_callbacks_allocate_send_buf(
+    node_nghttp2_session_callbacks* callbacks,
+    nghttp2_allocate_send_buf_cb cb) {
+  assert(callbacks != nullptr);
+  callbacks->allocate_send_buf = cb;
 }
 
 inline void nghttp2_set_callbacks_free_session(
@@ -346,7 +352,6 @@ ssize_t OnStreamRead(nghttp2_session* session,
 inline void nghttp2_free_headers_list(nghttp2_pending_headers_cb* cb) {
   while (cb->headers != nullptr) {
     nghttp2_header_list* item = cb->headers;
-    nghttp2_rcbuf_decref(item->name);
     nghttp2_rcbuf_decref(item->value);
     cb->headers = item->next;
     header_free_list.push(item);
@@ -389,10 +394,7 @@ inline void nghttp2_session_drain_send_cb(
   assert(handle != nullptr);
   assert(cb != nullptr);
   if (handle->callbacks.send != nullptr) {
-    handle->callbacks.send(handle, *cb->bufs, cb->nbufs, cb->total);
-  }
-  for (unsigned int n = 0; n < cb->nbufs; n++) {
-    delete[] (cb->bufs[n]).base;
+    handle->callbacks.send(handle, cb->buf, cb->length);
   }
   pending_session_send_free_list.push(cb);
 }
@@ -423,7 +425,7 @@ inline void nghttp2_session_drain_data_chunks(
       amount += item->buf.len;
       cb->head = item->next;
       data_chunk_free_list.push(item);
-      if (n == kSimultaneousBufferCount || cb->head == nullptr) {
+      if (n == MAX_BUFFER_COUNT || cb->head == nullptr) {
         chunks->nbufs = n;
         handle->callbacks.on_data_chunks(handle, cb->handle, chunks);
         // Notify the nghttp2_session that a given chunk of data has been
@@ -490,28 +492,53 @@ inline void nghttp2_session_drain_callbacks(nghttp2_session_t* handle) {
 
 inline void nghttp2_session_drain_send(nghttp2_session_t* handle) {
   const uint8_t* data;
-  size_t total = 0;
-  unsigned int idx = 0;
   nghttp2_pending_session_send_cb* cb = nullptr;
-  size_t amount = nghttp2_session_mem_send(handle->session, &data);
-  while (amount > 0) {
-    if (cb == nullptr)
-      cb = pending_session_send_free_list.pop();
-    cb->bufs[idx] = uv_buf_init(new char[amount], amount);
-    memcpy(cb->bufs[idx++].base, data, amount);
-    total += amount;
-    if (idx == kSimultaneousBufferCount)
-      break;
-    amount = nghttp2_session_mem_send(handle->session, &data);
+  nghttp2_pending_cb_list* item;
+  size_t amount = 0;
+  size_t offset = 0;
+  size_t src_offset = 0;
+  uv_buf_t* current =
+      handle->callbacks.allocate_send_buf(handle, SEND_BUFFER_RECOMMENDED_SIZE);
+  assert(current);
+  size_t remaining = current->len;
+  while ((amount = nghttp2_session_mem_send(handle->session, &data)) > 0) {
+    while (amount > 0) {
+      if (amount > remaining) {
+        // The amount copied does not fit within the remaining available
+        // buffer, copy what we can tear it off and keep going.
+        memcpy(current->base + offset, data + src_offset, remaining);
+        offset += remaining;
+        src_offset = remaining;
+        amount -= remaining;
+        cb = pending_session_send_free_list.pop();
+        cb->buf = current;
+        cb->length = offset;
+        item = cb_free_list.pop();
+        item->type = NGHTTP2_CB_SESSION_SEND;
+        item->cb = cb;
+        LINKED_LIST_ADD(handle->ready_callbacks, item);
+        offset = 0;
+        current =
+            handle->callbacks.allocate_send_buf(handle,
+                                                SEND_BUFFER_RECOMMENDED_SIZE);
+        assert(current);
+        remaining = current->len;
+        continue;
+      }
+      memcpy(current->base + offset, data + src_offset, amount);
+      offset += amount;
+      remaining -= amount;
+      amount = 0;
+      src_offset = 0;
+    }
   }
-  if (cb != nullptr) {
-    cb->nbufs = idx;
-    cb->total = total;
-    nghttp2_pending_cb_list* item = cb_free_list.pop();
-    item->type = NGHTTP2_CB_SESSION_SEND;
-    item->cb = cb;
-    LINKED_LIST_ADD(handle->ready_callbacks, item);
-  }
+  cb = pending_session_send_free_list.pop();
+  cb->buf = current;
+  cb->length = offset;
+  item = cb_free_list.pop();
+  item->type = NGHTTP2_CB_SESSION_SEND;
+  item->cb = cb;
+  LINKED_LIST_ADD(handle->ready_callbacks, item);
 }
 
 inline void nghttp2_session_send_and_make_ready(nghttp2_session_t* handle) {
@@ -527,10 +554,9 @@ inline void nghttp2_session_send_and_make_ready(nghttp2_session_t* handle) {
   handle->pending_callbacks_tail = nullptr;
 }
 
-// Run on every loop of the event loop per session
-void OnSessionIdle(uv_idle_t* t) {
+void OnSessionPrep(uv_prepare_t* t) {
   nghttp2_session_t* handle =
-    container_of(t, nghttp2_session_t, idler);
+    container_of(t, nghttp2_session_t, prep);
 
   nghttp2_session_send_and_make_ready(handle);
   nghttp2_session_drain_callbacks(handle);
@@ -773,8 +799,8 @@ inline int nghttp2_session_init(uv_loop_t* loop,
   }
   nghttp2_session_callbacks_del(callbacks);
 
-  uv_idle_init(loop, &(handle->idler));
-  uv_idle_start(&(handle->idler), OnSessionIdle);
+  uv_prepare_init(loop, &(handle->prep));
+  uv_prepare_start(&(handle->prep), OnSessionPrep);
   return ret;
 }
 
@@ -819,14 +845,14 @@ inline int nghttp2_session_free(nghttp2_session_t* handle) {
   assert(handle->ready_callbacks_head == nullptr);
   assert(handle->ready_callbacks_tail == nullptr);
 
-  uv_idle_stop(&(handle->idler));
-  auto IdleClose = [](uv_handle_t* handle) {
-    nghttp2_session_t* session = container_of(handle, nghttp2_session_t, idler);
+  uv_prepare_stop(&(handle->prep));
+  auto PrepClose = [](uv_handle_t* handle) {
+    nghttp2_session_t* session = container_of(handle, nghttp2_session_t, prep);
     if (session->callbacks.on_free_session != nullptr) {
       session->callbacks.on_free_session(session);
     }
   };
-  uv_close(reinterpret_cast<uv_handle_t*>(&(handle->idler)), IdleClose);
+  uv_close(reinterpret_cast<uv_handle_t*>(&(handle->prep)), PrepClose);
 
   nghttp2_session_terminate_session(handle->session, NGHTTP2_NO_ERROR);
   nghttp2_session_del(handle->session);
@@ -865,13 +891,13 @@ inline int nghttp2_submit_settings(nghttp2_session_t* handle,
 // Submit additional headers for a stream. Typically used to
 // submit informational (1xx) headers
 inline int nghttp2_submit_info(std::shared_ptr<nghttp2_stream_t> handle,
-                               MaybeStackBuffer<nghttp2_nv>* nva) {
+                               nghttp2_nv* nva, size_t len) {
   std::shared_ptr<nghttp2_stream_t> h = handle;
   nghttp2_session_t* session = h->session;
   return nghttp2_submit_headers(session->session,
                                 NGHTTP2_FLAG_NONE,
                                 h->id, nullptr,
-                                **nva, nva->length(), nullptr);
+                                nva, len, nullptr);
 }
 
 inline int nghttp2_submit_priority(std::shared_ptr<nghttp2_stream_t> handle,
@@ -902,7 +928,8 @@ inline int nghttp2_submit_rst_stream(std::shared_ptr<nghttp2_stream_t> handle,
 // Submit a push promise
 inline int32_t nghttp2_submit_push_promise(
     std::shared_ptr<nghttp2_stream_t> handle,
-    MaybeStackBuffer<nghttp2_nv>* nva,
+    nghttp2_nv* nva,
+    size_t len,
     std::shared_ptr<nghttp2_stream_t>* assigned,
     bool emptyPayload) {
   std::shared_ptr<nghttp2_stream_t> h = handle;
@@ -910,7 +937,7 @@ inline int32_t nghttp2_submit_push_promise(
 
   int32_t ret = nghttp2_submit_push_promise(session->session,
                                             NGHTTP2_FLAG_NONE,
-                                            h->id, **nva, nva->length(),
+                                            h->id, nva, len,
                                             nullptr);
   if (ret > 0) {
     *assigned = nghttp2_stream_init(session, ret);
@@ -925,7 +952,8 @@ inline int32_t nghttp2_submit_push_promise(
 // be sent.
 inline int nghttp2_submit_response(
     std::shared_ptr<nghttp2_stream_t> handle,
-    MaybeStackBuffer<nghttp2_nv>* nva,
+    nghttp2_nv* nva,
+    size_t len,
     bool emptyPayload) {
   std::shared_ptr<nghttp2_stream_t> h = handle;
   nghttp2_session_t* session = h->session;
@@ -937,11 +965,8 @@ inline int nghttp2_submit_response(
   if (!emptyPayload && nghttp2_stream_writable(h))
     provider = &prov;
 
-  return nghttp2_submit_response(session->session,
-                                 handle->id,
-                                 **nva,
-                                 nva->length(),
-                                 provider);
+  return nghttp2_submit_response(session->session, handle->id,
+                                 nva, len, provider);
 }
 
 
@@ -951,7 +976,8 @@ inline int nghttp2_submit_response(
 inline int32_t nghttp2_submit_request(
     nghttp2_session_t* handle,
     nghttp2_priority_spec* prispec,
-    MaybeStackBuffer<nghttp2_nv>* nva,
+    nghttp2_nv* nva,
+    size_t len,
     std::shared_ptr<nghttp2_stream_t>* assigned,
     bool emptyPayload) {
   nghttp2_data_provider* provider = nullptr;
@@ -961,7 +987,7 @@ inline int32_t nghttp2_submit_request(
   if (!emptyPayload)
     provider = &prov;
   int32_t ret = nghttp2_submit_request(handle->session,
-                                       prispec, **nva, nva->length(),
+                                       prispec, nva, len,
                                        provider, nullptr);
   // Assign the nghttp2_stream_t handle
   if (ret > 0) {

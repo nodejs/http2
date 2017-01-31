@@ -73,17 +73,25 @@ inline void CopyHeaders(Isolate* isolate,
   for (size_t n = 0; n < headers->Length(); n++) {
     item = headers->Get(n);
     header = item.As<Array>();
-    Utf8Value key(isolate, header->Get(0));
-    Utf8Value value(isolate, header->Get(1));
+    Local<Value> key = header->Get(0);
+    Local<Value> value = header->Get(1);
+    CHECK(key->IsString());
+    CHECK(value->IsString());
+    size_t keylen = StringBytes::StorageSize(isolate, key, ASCII);
+    size_t valuelen = StringBytes::StorageSize(isolate, value, ASCII);
     (*list)[n].flags = NGHTTP2_NV_FLAG_NONE;
-    (*list)[n].name = Malloc<uint8_t>(key.length());
-    (*list)[n].value = Malloc<uint8_t>(value.length());
-    (*list)[n].namelen = key.length();
-    (*list)[n].valuelen = value.length();
-    memcpy((*list)[n].name, *key, key.length());
-    memcpy((*list)[n].value, *value, value.length());
     if (header->Get(2)->BooleanValue())
       (*list)[n].flags |= NGHTTP2_NV_FLAG_NO_INDEX;
+    (*list)[n].name = Malloc<uint8_t>(keylen);
+    (*list)[n].value = Malloc<uint8_t>(valuelen);
+    (*list)[n].namelen =
+        StringBytes::Write(isolate,
+                           reinterpret_cast<char*>((*list)[n].name),
+                           keylen, key, ASCII);
+    (*list)[n].valuelen =
+        StringBytes::Write(isolate,
+                           reinterpret_cast<char*>((*list)[n].value),
+                           valuelen, value, ASCII);
   }
 }
 
@@ -460,16 +468,13 @@ void Http2Session::SubmitRequest(const FunctionCallbackInfo<Value>& args) {
   nghttp2_priority_spec prispec;
   nghttp2_priority_spec_init(&prispec, parent_id, weight, exclusive ? 1 : 0);
 
-  // Using a vector instead of a MaybeStackBuffer because
-  // we need to make sure that pseudo headers are moved to
-  // the front of the list...
-  MaybeStackBuffer<nghttp2_nv> list(headers->Length());
-  CopyHeaders(isolate, &list, headers);
+  Headers list(isolate, headers);
 
   std::shared_ptr<nghttp2_stream_t> assigned;
   args.GetReturnValue().Set(
-      nghttp2_submit_request(**session, &prispec, &list, &assigned, endStream));
-  FreeHeaders(&list);
+      nghttp2_submit_request(**session, &prispec,
+                             *list, list.length(),
+                             &assigned, endStream));
 }
 
 void Http2Session::SubmitResponse(const FunctionCallbackInfo<Value>& args) {
@@ -492,13 +497,10 @@ void Http2Session::SubmitResponse(const FunctionCallbackInfo<Value>& args) {
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
 
-  MaybeStackBuffer<nghttp2_nv> list(headers->Length());
-  CopyHeaders(isolate, &list, headers);
+  Headers list(isolate, headers);
 
   args.GetReturnValue().Set(
-      nghttp2_submit_response(stream_handle, &list, endStream));
-
-  FreeHeaders(&list);
+      nghttp2_submit_response(stream_handle, *list, list.length(), endStream));
 }
 
 void Http2Session::SendHeaders(const FunctionCallbackInfo<Value>& args) {
@@ -519,12 +521,10 @@ void Http2Session::SendHeaders(const FunctionCallbackInfo<Value>& args) {
   }
 
   Local<Array> headers = args[1].As<Array>();
-  MaybeStackBuffer<nghttp2_nv> list(headers->Length());
-  CopyHeaders(isolate, &list, headers);
+  Headers list(isolate, headers);
 
-  args.GetReturnValue().Set(nghttp2_submit_info(stream_handle, &list));
-
-  FreeHeaders(&list);
+  args.GetReturnValue().Set(
+      nghttp2_submit_info(stream_handle, *list, list.length()));
 }
 
 void Http2Session::ShutdownStream(const FunctionCallbackInfo<Value>& args) {
@@ -663,15 +663,11 @@ void Http2Session::SubmitPushPromise(const FunctionCallbackInfo<Value>& args) {
 
   Local<Array> headers = args[1].As<Array>();
   bool endStream = args[2]->BooleanValue();
-  MaybeStackBuffer<nghttp2_nv> list(headers->Length());
+  Headers list(isolate, headers);
 
-  CopyHeaders(isolate, &list, headers);
-
-  int32_t ret = nghttp2_submit_push_promise(parent, &list,
+  int32_t ret = nghttp2_submit_push_promise(parent, *list, list.length(),
                                             &assigned, endStream);
   args.GetReturnValue().Set(ret);
-
-  FreeHeaders(&list);
 }
 
 int Http2Session::DoWrite(WriteWrap* req_wrap,
@@ -711,11 +707,26 @@ int Http2Session::DoWrite(WriteWrap* req_wrap,
   return 0;
 }
 
+uv_buf_t* Http2Session::OnAllocateSend(nghttp2_session_t* handle,
+                                       size_t recommended) {
+  Http2Session* session =
+      ContainerOf(&Http2Session::handle_, handle);
+
+  Environment* env = session->env();
+  HandleScope scope(env->isolate());
+  Local<Object> req_wrap_obj =
+    env->write_wrap_constructor_function()
+      ->NewInstance(env->context()).ToLocalChecked();
+  SessionSendBuffer* buf =
+      ::new SessionSendBuffer(session->env(),
+                              req_wrap_obj,
+                              recommended);
+  return &buf->buffer_;
+}
 
 void Http2Session::OnSessionSend(nghttp2_session_t* handle,
-                                  const uv_buf_t* bufs,
-                                  unsigned int nbufs,
-                                  size_t total) {
+                                 uv_buf_t* buf,
+                                 size_t length) {
   Http2Session* session = ContainerOf(&Http2Session::handle_, handle);
   // Do not attempt to write data if the stream is not alive or is closing
   if (session->stream_ == nullptr ||
@@ -726,19 +737,10 @@ void Http2Session::OnSessionSend(nghttp2_session_t* handle,
 
   Environment* env = session->env();
   HandleScope scope(env->isolate());
-  Local<Object> req_wrap_obj =
-      env->write_wrap_constructor_function()
-          ->NewInstance(env->context()).ToLocalChecked();
-  auto cb = [](WriteWrap* req, int status) {
+  SessionSendBuffer* req = ContainerOf(&SessionSendBuffer::buffer_, buf);
+  uv_buf_t actual = uv_buf_init(buf->base, length);
+  if (session->stream_->DoWrite(req, &actual, 1, nullptr)) {
     req->Dispose();
-  };
-
-  MaybeStackBuffer<uv_buf_t, kSimultaneousBufferCount> buf(nbufs);
-  memcpy(*buf, bufs, nbufs * sizeof(*bufs));
-
-  WriteWrap* write_req = WriteWrap::New(env, req_wrap_obj, nullptr, cb);
-  if (session->stream_->DoWrite(write_req, *buf, nbufs, nullptr)) {
-    write_req->Dispose();
   }
 }
 
@@ -774,40 +776,100 @@ void Http2Session::OnTrailers(nghttp2_session_t* handle,
   }
 }
 
-// These are the headers that are only permitted to appear once within
-// a message. If multiple instances do occur, only the first value will
-// be accepted.
-static std::vector<std::string> singletonHeaders = {
-  "age",
-  "authorization",
-  "content-length",
-  "content-type",
-  "etag",
-  "expires",
-  "from",
-  "host",
-  "if-modified-since",
-  "if-unmodified-since",
-  "last-modified",
-  "location",
-  "max-forwards",
-  "proxy-authorization",
-  "referer",
-  "retry-after",
-  "server",
-  "user-agent"
-};
-
 static bool CheckHeaderAllowsMultiple(nghttp2_vec* name) {
-  // TODO(jasnell): There are faster ways of doing this. A binary
-  // search tree, for instance. This is implemented this way to
-  // get it minimally working but let's make this more efficient later.
-  if (name->len == 0) return false;
-  std::string needle = std::string(reinterpret_cast<char*>(name->base),
-                                   name->len);
-  return !std::binary_search(singletonHeaders.begin(),
-                             singletonHeaders.end(),
-                             needle);
+  switch (name->len) {
+    case 3:
+      if (memcmp(name->base, "age", 3) == 0)
+        return false;
+      break;
+    case 4:
+      switch (name->base[3]) {
+        case 'g':
+          if (memcmp(name->base, "eta", 3) == 0)
+            return false;
+          break;
+        case 'm':
+          if (memcmp(name->base, "fro", 3) == 0)
+            return false;
+          break;
+        case 't':
+          if (memcmp(name->base, "hos", 3) == 0)
+            return false;
+          break;
+      }
+    case 6:
+      if (memcmp(name->base, "server", 6) == 0)
+        return false;
+      break;
+    case 7:
+      switch (name->base[6]) {
+        case 's':
+          if (memcmp(name->base, "expire", 6) == 0)
+            return false;
+          break;
+        case 'r':
+          if (memcmp(name->base, "refere", 6) == 0)
+            return false;
+          break;
+      }
+      break;
+    case 8:
+      if (memcmp(name->base, "location", 8) == 0)
+        return false;
+      break;
+    case 10:
+      if (memcmp(name->base, "user-agent", 10) == 0)
+        return false;
+      break;
+    case 11:
+      if (memcmp(name->base, "retry-after", 11) == 0)
+        return false;
+      break;
+    case 12:
+      switch (name->base[11]) {
+        case 'e':
+          if (memcmp(name->base, "content-typ", 11) == 0)
+            return false;
+          break;
+        case 's':
+          if (memcmp(name->base, "max-forward", 11) == 0)
+            return false;
+          break;
+      }
+      break;
+    case 13:
+      switch (name->base[12]) {
+        case 'd':
+          if (memcmp(name->base, "last-modifie", 12) == 0)
+            return false;
+          break;
+        case 'n':
+          if (memcmp(name->base, "authorizatio", 12) == 0)
+            return false;
+          break;
+      }
+      break;
+    case 14:
+      if (memcmp(name->base, "content-length", 14) == 0)
+        return false;
+      break;
+    case 17:
+      if (memcmp(name->base, "if-modified-since", 17) == 0)
+        return false;
+      break;
+    case 19:
+      switch (name->base[18]) {
+        case 'e':
+          if (memcmp(name->base, "if-unmodified-sinc", 18) == 0)
+            return false;
+          break;
+        case 'n':
+          if (memcmp(name->base, "proxy-authenticatio", 18) == 0)
+            return false;
+          break;
+      }
+  }
+  return true;
 }
 
 void Http2Session::OnHeaders(nghttp2_session_t* handle,
@@ -823,20 +885,16 @@ void Http2Session::OnHeaders(nghttp2_session_t* handle,
 
   Isolate* isolate = env->isolate();
   HandleScope scope(isolate);
-
-  // TODO(jasnell): Make this a null object or a map
   Local<Object> holder = Object::New(isolate);
+  holder->SetPrototype(context, v8::Null(isolate));
   Local<String> name_str;
   Local<String> value_str;
   Local<Array> array;
   while (headers != nullptr) {
     nghttp2_header_list* item = headers;
+    name_str = ExternalHeaderNameResource::New(isolate, item->name);
     nghttp2_vec name = nghttp2_rcbuf_get_buf(item->name);
     nghttp2_vec value = nghttp2_rcbuf_get_buf(item->value);
-    name_str = String::NewFromUtf8(isolate,
-                                   reinterpret_cast<char*>(name.base),
-                                   v8::NewStringType::kNormal,
-                                   name.len).ToLocalChecked();
     value_str = String::NewFromUtf8(isolate,
                                     reinterpret_cast<char*>(value.base),
                                     v8::NewStringType::kNormal,
@@ -1136,13 +1194,9 @@ void Initialize(Local<Object> target,
   NODE_DEFINE_CONSTANT(constants, PADDING_STRATEGY_MAX);
   NODE_DEFINE_CONSTANT(constants, PADDING_STRATEGY_CALLBACK);
 
-#define STRING_CONSTANT(N) NODE_DEFINE_STRING_CONSTANT(constants, #N, N)
-  STRING_CONSTANT(HTTP2_HEADER_STATUS);
-  STRING_CONSTANT(HTTP2_HEADER_METHOD);
-  STRING_CONSTANT(HTTP2_HEADER_AUTHORITY);
-  STRING_CONSTANT(HTTP2_HEADER_SCHEME);
-  STRING_CONSTANT(HTTP2_HEADER_PATH);
-  STRING_CONSTANT(HTTP2_HEADER_DATE);
+#define STRING_CONSTANT(NAME, VALUE)                                          \
+  NODE_DEFINE_STRING_CONSTANT(constants, "HTTP2_HEADER_" # NAME, VALUE);
+HTTP_KNOWN_HEADERS(STRING_CONSTANT)
 #undef STRING_CONSTANT
 
 #define V(name, _) NODE_DEFINE_CONSTANT(constants, HTTP_STATUS_##name);
