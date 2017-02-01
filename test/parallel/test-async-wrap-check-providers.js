@@ -14,6 +14,7 @@ const fs = require('fs');
 const net = require('net');
 const tls = require('tls');
 const zlib = require('zlib');
+const http2 = process.binding('http2');
 const ChildProcess = require('child_process').ChildProcess;
 const StreamWrap = require('_stream_wrap').StreamWrap;
 const HTTPParser = process.binding('http_parser').HTTPParser;
@@ -122,3 +123,13 @@ process.on('exit', function() {
     assert.strictEqual(keyList.length, 0);
   }
 });
+
+{
+  const session = new http2.Http2Session(
+    http2.constants.NGHTTP2_SESSION_SERVER, {});
+  const wrap = new http2.SessionShutdownWrap();
+  wrap.oncomplete = function() {
+    session.destroy();
+  };
+  session.submitShutdown(wrap, true, false, 0, 0, '');
+}
