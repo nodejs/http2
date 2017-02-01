@@ -40,26 +40,6 @@ assert.doesNotThrow(() => {
   server.on('error', common.mustCall(() => {}, 0));
 });
 
-// createServer and createSecureServer each throw if the
-// handler is invalid (is not a function)
-const reg = /handler must be a function/;
-assert.throws(() => http2.createServer(), reg);
-assert.throws(() => http2.createServer({}), reg);
-assert.throws(() => http2.createServer({}, ''), reg);
-assert.throws(() => http2.createServer({}, true), reg);
-assert.throws(() => http2.createServer({}, 1), reg);
-assert.throws(() => http2.createServer({}, {}), reg);
-assert.throws(() => http2.createServer({}, []), reg);
-
-assert.throws(() => http2.createSecureServer(), reg);
-assert.throws(() => http2.createSecureServer({}), reg);
-assert.throws(() => http2.createSecureServer({}, ''), reg);
-assert.throws(() => http2.createSecureServer({}, true), reg);
-assert.throws(() => http2.createSecureServer({}, 1), reg);
-assert.throws(() => http2.createSecureServer({}, {}), reg);
-assert.throws(() => http2.createSecureServer({}, []), reg);
-
-
 // Test the plaintext server socket timeout
 {
   let client;
