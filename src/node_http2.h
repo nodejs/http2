@@ -306,8 +306,6 @@ const char* nghttp2_errname(int rv) {
 #define MIN_MAX_FRAME_SIZE DEFAULT_SETTINGS_MAX_FRAME_SIZE
 #define MAX_INITIAL_WINDOW_SIZE 2147483647
 
-class Http2Session;
-
 class Http2Options {
  public:
   Http2Options(Environment* env, Local<Value> options);
