@@ -555,8 +555,7 @@ inline void nghttp2_session_send_and_make_ready(nghttp2_session_t* handle) {
 }
 
 void OnSessionPrep(uv_prepare_t* t) {
-  nghttp2_session_t* handle =
-    container_of(t, nghttp2_session_t, prep);
+  nghttp2_session_t* handle = ContainerOf(&nghttp2_session_t::prep, t);
 
   nghttp2_session_send_and_make_ready(handle);
   nghttp2_session_drain_callbacks(handle);
@@ -847,7 +846,10 @@ inline int nghttp2_session_free(nghttp2_session_t* handle) {
 
   uv_prepare_stop(&(handle->prep));
   auto PrepClose = [](uv_handle_t* handle) {
-    nghttp2_session_t* session = container_of(handle, nghttp2_session_t, prep);
+    nghttp2_session_t* session =
+        ContainerOf(&nghttp2_session_t::prep,
+                    reinterpret_cast<uv_prepare_t*>(handle));
+
     if (session->callbacks.on_free_session != nullptr) {
       session->callbacks.on_free_session(session);
     }

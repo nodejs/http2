@@ -43,10 +43,6 @@ typedef enum {
   NGHTTP2_STREAM_FLAG_ENDED = 0x2
 } nghttp2_stream_flags;
 
-#define container_of(ptr, type, member)                                      \
-  reinterpret_cast<type*>((                                                  \
-    reinterpret_cast<char*>(ptr) - offsetof(type, member)));
-
 
 // Callbacks
 typedef void (*nghttp2_stream_alloc_cb)(
