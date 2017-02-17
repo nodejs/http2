@@ -20,7 +20,6 @@ typedef struct nghttp2_stream_s nghttp2_stream_t;
 typedef struct nghttp2_stream_write_s nghttp2_stream_write_t;
 typedef struct nghttp2_data_chunk_s nghttp2_data_chunk_t;
 typedef struct nghttp2_data_chunks_s nghttp2_data_chunks_t;
-typedef struct node_nghttp2_session_callbacks_s node_nghttp2_session_callbacks;
 
 #define MAX_BUFFER_COUNT 10
 #define SEND_BUFFER_RECOMMENDED_SIZE 4096
@@ -114,59 +113,31 @@ struct nghttp2_pending_cb_list {
   nghttp2_pending_cb_list* next = nullptr;
 };
 
-typedef void (*nghttp2_on_stream_init_cb)(
-    nghttp2_session_t* session,
-    std::shared_ptr<nghttp2_stream_t> stream);
-typedef void (*nghttp2_on_stream_free_cb)(
-    nghttp2_session_t* session,
-    nghttp2_stream_t* stream);
-typedef void (*nghttp2_session_send_cb)(
-    nghttp2_session_t* session,
-    uv_buf_t* buf,
-    size_t length);
-typedef void (*nghttp2_session_on_headers_cb)(
-    nghttp2_session_t* session,
-    std::shared_ptr<nghttp2_stream_t> stream,
-    nghttp2_header_list* headers,
-    nghttp2_headers_category cat,
-    uint8_t flags);
-typedef void (*nghttp2_session_on_stream_close_cb)(
-    nghttp2_session_t* session,
-    int32_t id,
-    uint32_t error_code);
-typedef void (*nghttp2_session_on_data_chunks_cb)(
-    nghttp2_session_t* session,
-    std::shared_ptr<nghttp2_stream_t> stream,
-    std::shared_ptr<nghttp2_data_chunks_t> chunks);
-typedef void (*nghttp2_session_on_settings_cb)(
-    nghttp2_session_t* session);
-typedef void (*nghttp2_stream_get_trailers_cb)(
-    nghttp2_session_t* session,
-    std::shared_ptr<nghttp2_stream_t> stream,
-    MaybeStackBuffer<nghttp2_nv>* nva);
-typedef ssize_t (*nghttp2_session_get_padding_cb)(
-    nghttp2_session_t* session,
-    size_t frameLength,
-    size_t maxFrameLength);
-typedef void (*nghttp2_free_session_cb)(
-    nghttp2_session_t* handle);
-typedef uv_buf_t* (*nghttp2_allocate_send_buf_cb)(
-    nghttp2_session_t* session,
-    size_t suggested_size);
+class NodeHTTP2SessionListener {
+ public:
+  virtual ~NodeHTTP2SessionListener() {}
 
+  virtual void OnStreamInit(std::shared_ptr<nghttp2_stream_t> stream) {}
+  virtual void OnStreamFree(nghttp2_stream_t* stream) {}
+  virtual void Send(uv_buf_t* buf,
+                    size_t length) {}
+  virtual void OnHeaders(std::shared_ptr<nghttp2_stream_t> stream,
+                         nghttp2_header_list* headers,
+                         nghttp2_headers_category cat,
+                         uint8_t flags) {}
+  virtual void OnStreamClose(int32_t id,
+                             uint32_t error_code) {}
+  virtual void OnDataChunks(std::shared_ptr<nghttp2_stream_t> stream,
+                            std::shared_ptr<nghttp2_data_chunks_t> chunks) {}
+  virtual void OnSettings() {}
+  virtual ssize_t GetPadding(size_t frameLength,
+                             size_t maxFrameLength) { return 0; }
+  virtual void OnTrailers(std::shared_ptr<nghttp2_stream_t> stream,
+                          MaybeStackBuffer<nghttp2_nv>* nva) {}
+  virtual void OnFreeSession() {}
+  virtual uv_buf_t* AllocateSend(size_t suggested_size) = 0;
 
-struct node_nghttp2_session_callbacks_s {
-  nghttp2_on_stream_init_cb stream_init = nullptr;
-  nghttp2_on_stream_free_cb stream_free = nullptr;
-  nghttp2_session_send_cb send = nullptr;
-  nghttp2_session_on_headers_cb on_headers = nullptr;
-  nghttp2_session_on_stream_close_cb on_stream_close = nullptr;
-  nghttp2_session_on_data_chunks_cb on_data_chunks = nullptr;
-  nghttp2_session_on_settings_cb on_settings = nullptr;
-  nghttp2_session_get_padding_cb on_get_padding = nullptr;
-  nghttp2_stream_get_trailers_cb on_get_trailers = nullptr;
-  nghttp2_free_session_cb on_free_session = nullptr;
-  nghttp2_allocate_send_buf_cb allocate_send_buf = nullptr;
+  virtual bool HasGetPaddingCallback() { return false; }
 };
 
 // Handle Types
@@ -175,13 +146,12 @@ struct nghttp2_session_s {
   uv_prepare_t prep;
   nghttp2_session* session;
   nghttp2_session_type session_type;
-  node_nghttp2_session_callbacks callbacks;
+  NodeHTTP2SessionListener* listener;
   nghttp2_pending_cb_list* pending_callbacks_head = nullptr;
   nghttp2_pending_cb_list* pending_callbacks_tail = nullptr;
   nghttp2_pending_cb_list* ready_callbacks_head = nullptr;
   nghttp2_pending_cb_list* ready_callbacks_tail = nullptr;
   std::map<int32_t, std::shared_ptr<nghttp2_stream_t>> streams;
-  nghttp2_session_get_padding_cb get_padding = nullptr;
 };
 
 struct nghttp2_stream_s {
@@ -226,54 +196,10 @@ inline bool nghttp2_session_find_stream(
     int32_t id,
     std::shared_ptr<nghttp2_stream_t>* stream_handle);
 
-inline void nghttp2_set_callbacks_allocate_send_buf(
-    node_nghttp2_session_callbacks* callbacks,
-    nghttp2_allocate_send_buf_cb cb);
-
-inline void nghttp2_set_callbacks_free_session(
-    node_nghttp2_session_callbacks* callbacks,
-    nghttp2_free_session_cb cb);
-
-inline void nghttp2_set_callback_get_padding(
-    node_nghttp2_session_callbacks* callbacks,
-    nghttp2_session_get_padding_cb cb);
-
-inline void nghttp2_set_callback_stream_get_trailers(
-    node_nghttp2_session_callbacks* callbacks,
-    nghttp2_stream_get_trailers_cb cb);
-
-inline void nghttp2_set_callback_on_settings(
-    node_nghttp2_session_callbacks* callbacks,
-    nghttp2_session_on_settings_cb cb);
-
-inline void nghttp2_set_callback_stream_init(
-    node_nghttp2_session_callbacks* callbacks,
-    nghttp2_on_stream_init_cb cb);
-
-inline void nghttp2_set_callback_stream_free(
-    node_nghttp2_session_callbacks* callbacks,
-    nghttp2_on_stream_free_cb cb);
-
-inline void nghttp2_set_callback_send(
-    node_nghttp2_session_callbacks* callbacks,
-    nghttp2_session_send_cb cb);
-
-inline void nghttp2_set_callback_on_headers(
-    node_nghttp2_session_callbacks* callbacks,
-    nghttp2_session_on_headers_cb cb);
-
-inline void nghttp2_set_callback_on_stream_close(
-    node_nghttp2_session_callbacks* callbacks,
-    nghttp2_session_on_stream_close_cb cb);
-
-inline void nghttp2_set_callback_on_data_chunks(
-    node_nghttp2_session_callbacks* callbacks,
-    nghttp2_session_on_data_chunks_cb cb);
-
 inline int nghttp2_session_init(
     uv_loop_t*,
     nghttp2_session_t* handle,
-    const node_nghttp2_session_callbacks* cb,
+    NodeHTTP2SessionListener* listener,
     const nghttp2_session_type type = NGHTTP2_SESSION_SERVER,
     nghttp2_option* options = nullptr,
     nghttp2_mem* mem = nullptr);

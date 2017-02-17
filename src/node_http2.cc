@@ -107,34 +107,29 @@ void Http2Session::OnFreeSession(nghttp2_session_t* handle) {
   delete session;
 }
 
-ssize_t Http2Session::OnMaxFrameSizePadding(nghttp2_session_t* handle,
-                                            size_t frameLen,
+ssize_t Http2Session::OnMaxFrameSizePadding(size_t frameLen,
                                             size_t maxPayloadLen) {
   return maxPayloadLen;
 }
 
-ssize_t Http2Session::OnCallbackPadding(nghttp2_session_t* handle,
-                                        size_t frameLen,
+ssize_t Http2Session::OnCallbackPadding(size_t frameLen,
                                         size_t maxPayloadLen) {
-  Http2Session* session = ContainerOf(&Http2Session::handle_, handle);
-  Environment* env = session->env();
-  Isolate* isolate = env->isolate();
-  Local<Context> context = env->context();
+  Isolate* isolate = env()->isolate();
+  Local<Context> context = env()->context();
 
   HandleScope handle_scope(isolate);
   Context::Scope context_scope(context);
 
   Local<String> getpadding = FIXED_ONE_BYTE_STRING(isolate, "ongetpadding");
-  if (session->object()->Has(context, getpadding).FromJust()) {
+  if (object()->Has(context, getpadding).FromJust()) {
     Local<Value> argv[2] = {
       Integer::NewFromUnsigned(isolate, frameLen),
       Integer::NewFromUnsigned(isolate, maxPayloadLen)
     };
     v8::TryCatch try_catch(isolate);
-    Local<Value> ret =
-        session->MakeCallback(getpadding, arraysize(argv), argv);
+    Local<Value> ret = MakeCallback(getpadding, arraysize(argv), argv);
     if (ret.IsEmpty()) {
-      ClearFatalExceptionHandlers(env);
+      ClearFatalExceptionHandlers(env());
       FatalException(isolate, try_catch);
     }
     uint32_t retval = ret->Uint32Value();
@@ -707,65 +702,50 @@ int Http2Session::DoWrite(WriteWrap* req_wrap,
   return 0;
 }
 
-uv_buf_t* Http2Session::OnAllocateSend(nghttp2_session_t* handle,
-                                       size_t recommended) {
-  Http2Session* session =
-      ContainerOf(&Http2Session::handle_, handle);
-
-  Environment* env = session->env();
-  HandleScope scope(env->isolate());
+uv_buf_t* Http2Session::AllocateSend(size_t recommended) {
+  HandleScope scope(env()->isolate());
   Local<Object> req_wrap_obj =
-    env->write_wrap_constructor_function()
-      ->NewInstance(env->context()).ToLocalChecked();
+    env()->write_wrap_constructor_function()
+      ->NewInstance(env()->context()).ToLocalChecked();
   SessionSendBuffer* buf =
-      ::new SessionSendBuffer(session->env(),
+      ::new SessionSendBuffer(env(),
                               req_wrap_obj,
                               recommended);
   return &buf->buffer_;
 }
 
-void Http2Session::OnSessionSend(nghttp2_session_t* handle,
-                                 uv_buf_t* buf,
-                                 size_t length) {
-  Http2Session* session = ContainerOf(&Http2Session::handle_, handle);
+void Http2Session::Send(uv_buf_t* buf,
+                        size_t length) {
   // Do not attempt to write data if the stream is not alive or is closing
-  if (session->stream_ == nullptr ||
-      !session->stream_->IsAlive() ||
-      session->stream_->IsClosing()) {
+  if (stream_ == nullptr || !stream_->IsAlive() || stream_->IsClosing()) {
     return;
   }
 
-  Environment* env = session->env();
-  HandleScope scope(env->isolate());
+  HandleScope scope(env()->isolate());
   SessionSendBuffer* req = ContainerOf(&SessionSendBuffer::buffer_, buf);
   uv_buf_t actual = uv_buf_init(buf->base, length);
-  if (session->stream_->DoWrite(req, &actual, 1, nullptr)) {
+  if (stream_->DoWrite(req, &actual, 1, nullptr)) {
     req->Dispose();
   }
 }
 
-void Http2Session::OnTrailers(nghttp2_session_t* handle,
-                              std::shared_ptr<nghttp2_stream_t> stream,
+void Http2Session::OnTrailers(std::shared_ptr<nghttp2_stream_t> stream,
                               MaybeStackBuffer<nghttp2_nv>* trailers) {
-  Http2Session* session = ContainerOf(&Http2Session::handle_, handle);
-  CHECK(session);
-  Environment* env = session->env();
-  Local<Context> context = env->context();
+  Local<Context> context = env()->context();
   Context::Scope context_scope(context);
-  Isolate* isolate = env->isolate();
+  Isolate* isolate = env()->isolate();
 
   HandleScope scope(isolate);
   Local<String> ontrailers = FIXED_ONE_BYTE_STRING(isolate, "ontrailers");
-  if (session->object()->Has(context, ontrailers).FromJust()) {
+  if (object()->Has(context, ontrailers).FromJust()) {
     Local<Value> argv[1] = {
       Integer::New(isolate, stream->id)
     };
 
     v8::TryCatch try_catch(isolate);
-    Local<Value> ret =
-        session->MakeCallback(ontrailers, arraysize(argv), argv);
+    Local<Value> ret = MakeCallback(ontrailers, arraysize(argv), argv);
     if (ret.IsEmpty()) {
-      ClearFatalExceptionHandlers(env);
+      ClearFatalExceptionHandlers(env());
       FatalException(isolate, try_catch);
     } else {
       CHECK(ret->IsArray());
@@ -872,18 +852,14 @@ static bool CheckHeaderAllowsMultiple(nghttp2_vec* name) {
   return true;
 }
 
-void Http2Session::OnHeaders(nghttp2_session_t* handle,
-                             std::shared_ptr<nghttp2_stream_t> stream,
+void Http2Session::OnHeaders(std::shared_ptr<nghttp2_stream_t> stream,
                              nghttp2_header_list* headers,
                              nghttp2_headers_category cat,
                              uint8_t flags) {
-  Http2Session* session = ContainerOf(&Http2Session::handle_, handle);
-  CHECK(session);
-  Environment* env = session->env();
-  Local<Context> context = env->context();
+  Local<Context> context = env()->context();
   Context::Scope context_scope(context);
 
-  Isolate* isolate = env->isolate();
+  Isolate* isolate = env()->isolate();
   HandleScope scope(isolate);
   Local<Object> holder = Object::New(isolate);
   holder->SetPrototype(context, v8::Null(isolate));
@@ -919,7 +895,7 @@ void Http2Session::OnHeaders(nghttp2_session_t* handle,
   }
 
   Local<String> onheaders = FIXED_ONE_BYTE_STRING(isolate, "onheaders");
-  if (session->object()->Has(context, onheaders).FromJust()) {
+  if (object()->Has(context, onheaders).FromJust()) {
     Local<Value> argv[4] = {
       Integer::New(isolate, stream->id),
       Integer::New(isolate, cat),
@@ -927,37 +903,31 @@ void Http2Session::OnHeaders(nghttp2_session_t* handle,
       holder
     };
     v8::TryCatch try_catch(isolate);
-    Local<Value> ret =
-        session->MakeCallback(onheaders, arraysize(argv), argv);
+    Local<Value> ret = MakeCallback(onheaders, arraysize(argv), argv);
     if (ret.IsEmpty()) {
-      ClearFatalExceptionHandlers(env);
+      ClearFatalExceptionHandlers(env());
       FatalException(isolate, try_catch);
     }
   }
 }
 
 
-void Http2Session::OnStreamClose(nghttp2_session_t* handle,
-                                  int32_t id, uint32_t error_code) {
-  Http2Session* session = ContainerOf(&Http2Session::handle_, handle);
-  CHECK(session);
-  Environment* env = session->env();
-  Isolate* isolate = env->isolate();
-  Local<Context> context = env->context();
+void Http2Session::OnStreamClose(int32_t id, uint32_t error_code) {
+  Isolate* isolate = env()->isolate();
+  Local<Context> context = env()->context();
 
   HandleScope scope(isolate);
   Local<String> onstreamclose = FIXED_ONE_BYTE_STRING(isolate, "onstreamclose");
-  if (session->object()->Has(context, onstreamclose).FromJust()) {
+  if (object()->Has(context, onstreamclose).FromJust()) {
     Local<Value> argv[2] = {
       Integer::New(isolate, id),
       Integer::NewFromUnsigned(isolate, error_code)
     };
 
     v8::TryCatch try_catch(isolate);
-    Local<Value> ret =
-        session->MakeCallback(onstreamclose, arraysize(argv), argv);
+    Local<Value> ret = MakeCallback(onstreamclose, arraysize(argv), argv);
     if (ret.IsEmpty()) {
-      ClearFatalExceptionHandlers(env);
+      ClearFatalExceptionHandlers(env());
       FatalException(isolate, try_catch);
     }
   }
@@ -965,15 +935,11 @@ void Http2Session::OnStreamClose(nghttp2_session_t* handle,
 
 
 void Http2Session::OnDataChunks(
-    nghttp2_session_t* handle,
     std::shared_ptr<nghttp2_stream_t> stream,
     std::shared_ptr<nghttp2_data_chunks_t> chunks) {
-  Http2Session* session = ContainerOf(&Http2Session::handle_, handle);
-  Environment* env = session->env();
-  Isolate* isolate = env->isolate();
-  Local<Context> context = env->context();
+  Isolate* isolate = env()->isolate();
+  Local<Context> context = env()->context();
   HandleScope scope(isolate);
-  CHECK(session);
   std::shared_ptr<nghttp2_stream_t> stream_handle = stream;
   std::shared_ptr<nghttp2_data_chunks_t> stream_chunks = chunks;
 
@@ -987,35 +953,24 @@ void Http2Session::OnDataChunks(
                                      stream_chunks->buf[n].base,
                                      stream_chunks->buf[n].len)
                                          .ToLocalChecked();
-    session->EmitData(stream_chunks->buf[n].len, buf, handle_obj);
+    EmitData(stream_chunks->buf[n].len, buf, handle_obj);
   }
 }
 
-void Http2Session::OnSettings(nghttp2_session_t* handle) {
-  Http2Session* session = ContainerOf(&Http2Session::handle_, handle);
-  Environment* env = session->env();
-  Local<Context> context = env->context();
-  Isolate* isolate = env->isolate();
+void Http2Session::OnSettings() {
+  Local<Context> context = env()->context();
+  Isolate* isolate = env()->isolate();
   HandleScope scope(isolate);
   Local<String> onsettings = FIXED_ONE_BYTE_STRING(isolate, "onsettings");
-  if (session->object()->Has(context, onsettings).FromJust()) {
+  if (object()->Has(context, onsettings).FromJust()) {
     v8::TryCatch try_catch(isolate);
-    Local<Value> ret =
-        session->MakeCallback(onsettings, 0, nullptr);
+    Local<Value> ret = MakeCallback(onsettings, 0, nullptr);
     if (ret.IsEmpty()) {
-      ClearFatalExceptionHandlers(env);
+      ClearFatalExceptionHandlers(env());
       FatalException(isolate, try_catch);
     }
   }
 }
-
-void Http2Session::OnStreamInit(nghttp2_session_t* handle,
-                                 std::shared_ptr<nghttp2_stream_t> stream) {}
-
-
-void Http2Session::OnStreamFree(nghttp2_session_t* session,
-                                 nghttp2_stream_t* stream) {}
-
 
 void Http2Session::OnStreamAllocImpl(size_t suggested_size,
                                       uv_buf_t* buf,
