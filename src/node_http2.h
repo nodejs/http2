@@ -306,8 +306,6 @@ const char* nghttp2_errname(int rv) {
 #define MIN_MAX_FRAME_SIZE DEFAULT_SETTINGS_MAX_FRAME_SIZE
 #define MAX_INITIAL_WINDOW_SIZE 2147483647
 
-class Http2Session;
-
 class Http2Options {
  public:
   Http2Options(Environment* env, Local<Value> options);
@@ -364,7 +362,9 @@ static const size_t kAllocBufferSize = 64 * 1024;
 typedef uint32_t(*get_setting)(nghttp2_session* session,
                                nghttp2_settings_id id);
 
-class Http2Session : public AsyncWrap, public StreamBase {
+class Http2Session : public AsyncWrap,
+                     public StreamBase,
+                     public Nghttp2Session {
  public:
   Http2Session(Environment* env,
                Local<Object> wrap,
@@ -373,34 +373,12 @@ class Http2Session : public AsyncWrap, public StreamBase {
                AsyncWrap(env, wrap, AsyncWrap::PROVIDER_HTTP2SESSION),
                StreamBase(env) {
     Wrap(object(), this);
-    node_nghttp2_session_callbacks cb;
-    nghttp2_set_callback_send(&cb, OnSessionSend);
-    nghttp2_set_callback_on_headers(&cb, OnHeaders);
-    nghttp2_set_callback_on_stream_close(&cb, OnStreamClose);
-    nghttp2_set_callback_on_data_chunks(&cb, OnDataChunks);
-    nghttp2_set_callback_on_settings(&cb, OnSettings);
-    nghttp2_set_callback_stream_init(&cb, OnStreamInit);
-    nghttp2_set_callback_stream_free(&cb, OnStreamFree);
-    nghttp2_set_callback_stream_get_trailers(&cb, OnTrailers);
-    nghttp2_set_callbacks_free_session(&cb, OnFreeSession);
-    nghttp2_set_callbacks_allocate_send_buf(&cb, OnAllocateSend);
 
     Http2Options opts(env, options);
 
     padding_strategy_ = opts.GetPaddingStrategy();
-    switch (padding_strategy_) {
-      case PADDING_STRATEGY_MAX:
-        nghttp2_set_callback_get_padding(&cb, OnMaxFrameSizePadding);
-        break;
-      case PADDING_STRATEGY_CALLBACK:
-        nghttp2_set_callback_get_padding(&cb, OnCallbackPadding);
-        break;
-      default:
-        // Fall through and do nothing. Do not set a padding callback
-        break;
-    }
 
-    nghttp2_session_init(env->event_loop(), &handle_, &cb, type, *opts);
+    Init(env->event_loop(), type, *opts);
     stream_buf_.AllocateSufficientStorage(kAllocBufferSize);
   }
 
@@ -411,16 +389,6 @@ class Http2Session : public AsyncWrap, public StreamBase {
     CHECK_EQ(true, persistent().IsEmpty());
   }
 
-  static void OnFreeSession(nghttp2_session_t* session);
-
-  static ssize_t OnMaxFrameSizePadding(nghttp2_session_t* session,
-                                       size_t frameLength,
-                                       size_t maxPayloadLen);
-
-  static ssize_t OnCallbackPadding(nghttp2_session_t* session,
-                                   size_t frame,
-                                   size_t maxPayloadLen);
-
   static void OnStreamAllocImpl(size_t suggested_size,
                                 uv_buf_t* buf,
                                 void* ctx);
@@ -428,29 +396,43 @@ class Http2Session : public AsyncWrap, public StreamBase {
                                const uv_buf_t* bufs,
                                uv_handle_type pending,
                                void* ctx);
-  static void OnHeaders(nghttp2_session_t* handle,
-                        std::shared_ptr<nghttp2_stream_t> stream,
-                        nghttp2_header_list* headers,
-                        nghttp2_headers_category cat,
-                        uint8_t flags);
-  static void OnStreamClose(nghttp2_session_t* session,
-                            int32_t id, uint32_t error_code);
-  static void OnSessionSend(nghttp2_session_t* handle,
-                            uv_buf_t* bufs,
-                            size_t total);
-  static void OnDataChunks(nghttp2_session_t* session,
-                           std::shared_ptr<nghttp2_stream_t> stream,
-                           std::shared_ptr<nghttp2_data_chunks_t> chunks);
-  static void OnStreamInit(nghttp2_session_t* session,
-                           std::shared_ptr<nghttp2_stream_t> stream);
-  static void OnStreamFree(nghttp2_session_t* session,
-                           nghttp2_stream_t* stream);
-  static void OnSettings(nghttp2_session_t* session);
-  static void OnTrailers(nghttp2_session_t* handle,
-                         std::shared_ptr<nghttp2_stream_t> stream,
-                         MaybeStackBuffer<nghttp2_nv>* trailers);
-  static uv_buf_t* OnAllocateSend(nghttp2_session_t* handle,
-                                  size_t recommended);
+ protected:
+  void OnFreeSession() override;
+
+  ssize_t OnMaxFrameSizePadding(size_t frameLength,
+                                size_t maxPayloadLen);
+
+  ssize_t OnCallbackPadding(size_t frame,
+                            size_t maxPayloadLen);
+
+  bool HasGetPaddingCallback() override {
+    return padding_strategy_ == PADDING_STRATEGY_MAX ||
+           padding_strategy_ == PADDING_STRATEGY_CALLBACK;
+  }
+
+  ssize_t GetPadding(size_t frameLength, size_t maxPayloadLen) override {
+    if (padding_strategy_ == PADDING_STRATEGY_MAX) {
+      return OnMaxFrameSizePadding(frameLength, maxPayloadLen);
+    }
+
+    CHECK_EQ(padding_strategy_, PADDING_STRATEGY_CALLBACK);
+
+    return OnCallbackPadding(frameLength, maxPayloadLen);
+  }
+
+  void OnHeaders(std::shared_ptr<Nghttp2Stream> stream,
+                 nghttp2_header_list* headers,
+                 nghttp2_headers_category cat,
+                 uint8_t flags) override;
+  void OnStreamClose(int32_t id, uint32_t error_code) override;
+  void Send(uv_buf_t* bufs,
+            size_t total) override;
+  void OnDataChunks(std::shared_ptr<Nghttp2Stream> stream,
+                    std::shared_ptr<nghttp2_data_chunks_t> chunks) override;
+  void OnSettings() override;
+  void OnTrailers(std::shared_ptr<Nghttp2Stream> stream,
+                  MaybeStackBuffer<nghttp2_nv>* trailers) override;
+  uv_buf_t* AllocateSend(size_t recommended) override;
 
   int DoWrite(WriteWrap* w, uv_buf_t* bufs, size_t count,
               uv_stream_t* send_handle) override;
@@ -477,6 +459,7 @@ class Http2Session : public AsyncWrap, public StreamBase {
     return 0;
   }
 
+ public:
   void Consume(Local<External> external);
   void Unconsume();
 
@@ -507,16 +490,11 @@ class Http2Session : public AsyncWrap, public StreamBase {
     return sizeof(*this);
   }
 
-  nghttp2_session_t* operator*() {
-    return &handle_;
-  }
-
   char* stream_alloc() {
     return *stream_buf_;
   }
 
  private:
-  nghttp2_session_t handle_;
   StreamBase* stream_;
   StreamResource::Callback<StreamResource::AllocCb> prev_alloc_cb_;
   StreamResource::Callback<StreamResource::ReadCb> prev_read_cb_;
@@ -534,7 +512,7 @@ class SessionShutdownWrap : public ReqWrap<uv_idle_t> {
 
   SessionShutdownWrap(Environment* env,
                       v8::Local<v8::Object> req_wrap_obj,
-                      nghttp2_session_t* handle,
+                      Nghttp2Session* handle,
                       uint32_t errorCode,
                       int32_t lastStreamID,
                       Local<Value> opaqueData,
@@ -566,10 +544,6 @@ class SessionShutdownWrap : public ReqWrap<uv_idle_t> {
   }
   size_t self_size() const override { return sizeof(*this); }
 
-  nghttp2_session_t* handle() {
-    return handle_;
-  }
-
   uint32_t errorCode() {
     return errorCode_;
   }
@@ -590,8 +564,12 @@ class SessionShutdownWrap : public ReqWrap<uv_idle_t> {
     return opaqueData_.length();
   }
 
+  Nghttp2Session* handle() {
+    return handle_;
+  }
+
  private:
-  nghttp2_session_t* handle_;
+  Nghttp2Session* handle_;
   DoneCb cb_;
   uint32_t errorCode_;
   int32_t lastStreamID_;
