@@ -174,19 +174,20 @@ static node::Freelist<nghttp2_pending_session_send_cb, FREELIST_MAX,
                       PendingSessionFreelistTraits>
                         pending_session_send_free_list;
 
-inline bool nghttp2_session_has_stream(nghttp2_session_t* handle, int32_t id) {
-  assert(handle != nullptr);
-  auto s = handle->streams.find(id);
-  return s != handle->streams.end();
+inline void Nghttp2Session::SubmitShutdownNotice() {
+  nghttp2_submit_shutdown_notice(session);
 }
 
-inline bool nghttp2_session_find_stream(
-    nghttp2_session_t* handle,
+inline bool Nghttp2Session::HasStream(int32_t id) {
+  auto s = streams.find(id);
+  return s != streams.end();
+}
+
+inline bool Nghttp2Session::FindStream(
     int32_t id,
     std::shared_ptr<nghttp2_stream_t>* stream_handle) {
-  assert(handle != nullptr);
-  auto s = handle->streams.find(id);
-  if (s != handle->streams.end()) {
+  auto s = streams.find(id);
+  if (s != streams.end()) {
     *stream_handle = s->second;
     return true;
   } else {
@@ -194,22 +195,20 @@ inline bool nghttp2_session_find_stream(
   }
 }
 
-inline void nghttp2_queue_pending_callback(nghttp2_session_t* handle,
-                                           nghttp2_pending_cb_list* item) {
-  assert(handle != nullptr);
-  LINKED_LIST_ADD(handle->pending_callbacks, item);
+void Nghttp2Session::QueuePendingCallback(nghttp2_pending_cb_list* item) {
+  LINKED_LIST_ADD(pending_callbacks, item);
 }
 
-ssize_t OnStreamRead(nghttp2_session* session,
-                     int32_t stream_id,
-                     uint8_t* buf,
-                     size_t length,
-                     uint32_t* flags,
-                     nghttp2_data_source* source,
-                     void* user_data) {
-  nghttp2_session_t* handle = static_cast<nghttp2_session_t*>(user_data);
+ssize_t Nghttp2Session::OnStreamRead(nghttp2_session* session,
+                                     int32_t stream_id,
+                                     uint8_t* buf,
+                                     size_t length,
+                                     uint32_t* flags,
+                                     nghttp2_data_source* source,
+                                     void* user_data) {
+  Nghttp2Session* handle = static_cast<Nghttp2Session*>(user_data);
   std::shared_ptr<nghttp2_stream_t> stream_handle;
-  assert(nghttp2_session_find_stream(handle, stream_id, &stream_handle));
+  assert(handle->FindStream(stream_id, &stream_handle));
 
   size_t remaining = length;
   size_t offset = 0;
@@ -253,10 +252,10 @@ ssize_t OnStreamRead(nghttp2_session* session,
     *flags |= NGHTTP2_DATA_FLAG_EOF;
 
     MaybeStackBuffer<nghttp2_nv> trailers;
-    handle->listener->OnTrailers(stream_handle, &trailers);
+    handle->OnTrailers(stream_handle, &trailers);
     if (trailers.length() > 0) {
       *flags |= NGHTTP2_DATA_FLAG_NO_END_STREAM;
-      nghttp2_submit_trailer(handle->session,
+      nghttp2_submit_trailer(session,
                              stream_handle->id,
                              *trailers,
                              trailers.length());
@@ -279,50 +278,34 @@ inline void nghttp2_free_headers_list(nghttp2_pending_headers_cb* cb) {
   }
 }
 
-inline void nghttp2_session_drain_headers_cb(
-    nghttp2_session_t* handle,
-    nghttp2_pending_headers_cb* cb) {
-  assert(handle != nullptr);
+void Nghttp2Session::DrainHeaders(nghttp2_pending_headers_cb* cb) {
   assert(cb != nullptr);
-  handle->listener->OnHeaders(cb->handle,
-                              cb->headers,
-                              cb->category,
-                              cb->flags);
+  OnHeaders(cb->handle, cb->headers, cb->category, cb->flags);
   nghttp2_free_headers_list(cb);
   pending_headers_free_list.push(cb);
 }
 
-inline void nghttp2_session_drain_stream_close_cb(
-    nghttp2_session_t* handle,
-    nghttp2_pending_stream_close_cb* cb) {
-  assert(handle != nullptr);
+void Nghttp2Session::DrainStreamClose(nghttp2_pending_stream_close_cb* cb) {
   assert(cb != nullptr);
-  handle->listener->OnStreamClose(cb->handle->id,
-                                  cb->error_code);
-  handle->streams.erase(cb->handle->id);
+  OnStreamClose(cb->handle->id, cb->error_code);
+  streams.erase(cb->handle->id);
   pending_stream_close_free_list.push(cb);
 }
 
-inline void nghttp2_session_drain_send_cb(
-    nghttp2_session_t* handle,
-    nghttp2_pending_session_send_cb* cb) {
-  assert(handle != nullptr);
+void Nghttp2Session::DrainSend(nghttp2_pending_session_send_cb* cb) {
   assert(cb != nullptr);
-  handle->listener->Send(cb->buf, cb->length);
+  Send(cb->buf, cb->length);
   pending_session_send_free_list.push(cb);
 }
 
-void DeleteDataChunks(nghttp2_data_chunks_t* chunks) {
+void Nghttp2Session::DeleteDataChunks(nghttp2_data_chunks_t* chunks) {
   for (unsigned int n = 0; n < chunks->nbufs; n++) {
     delete[] chunks->buf[n].base;
   }
   data_chunks_free_list.push(chunks);
 }
 
-inline void nghttp2_session_drain_data_chunks(
-    nghttp2_session_t* handle,
-    nghttp2_pending_data_chunks_cb* cb) {
-  assert(handle != nullptr);
+void Nghttp2Session::DrainDataChunks(nghttp2_pending_data_chunks_cb* cb) {
   assert(cb != nullptr);
   std::shared_ptr<nghttp2_data_chunks_t> chunks;
   unsigned int n = 0;
@@ -340,10 +323,10 @@ inline void nghttp2_session_drain_data_chunks(
     data_chunk_free_list.push(item);
     if (n == MAX_BUFFER_COUNT || cb->head == nullptr) {
       chunks->nbufs = n;
-      handle->listener->OnDataChunks(cb->handle, chunks);
+      OnDataChunks(cb->handle, chunks);
       // Notify the nghttp2_session that a given chunk of data has been
       // consumed and we are ready to receive more data for this stream
-      nghttp2_session_consume(handle->session, cb->handle->id, amount);
+      nghttp2_session_consume(session, cb->handle->id, amount);
       n = 0;
       amount = 0;
     }
@@ -351,67 +334,53 @@ inline void nghttp2_session_drain_data_chunks(
   pending_data_chunks_free_list.push(cb);
 }
 
-inline void nghttp2_session_drain_settings(
-    nghttp2_session_t* handle,
-    nghttp2_pending_settings_cb* cb) {
-  assert(handle != nullptr);
+void Nghttp2Session::DrainSettings(nghttp2_pending_settings_cb* cb) {
   assert(cb != nullptr);
-  handle->listener->OnSettings();
+  OnSettings();
   pending_settings_free_list.push(cb);
 }
 
-inline void nghttp2_session_drain_callbacks(nghttp2_session_t* handle) {
-  assert(handle != nullptr);
-  while (handle->ready_callbacks_head != nullptr) {
-    nghttp2_pending_cb_list* item = handle->ready_callbacks_head;
+void Nghttp2Session::DrainCallbacks() {
+  while (ready_callbacks_head != nullptr) {
+    nghttp2_pending_cb_list* item = ready_callbacks_head;
     switch (item->type) {
       case NGHTTP2_CB_SESSION_SEND:
-        nghttp2_session_drain_send_cb(
-            handle,
-            static_cast<nghttp2_pending_session_send_cb*>(item->cb));
+        DrainSend(static_cast<nghttp2_pending_session_send_cb*>(item->cb));
         break;
       case NGHTTP2_CB_HEADERS:
-        nghttp2_session_drain_headers_cb(
-            handle,
-            static_cast<nghttp2_pending_headers_cb*>(item->cb));
+        DrainHeaders(static_cast<nghttp2_pending_headers_cb*>(item->cb));
         break;
       case NGHTTP2_CB_STREAM_CLOSE:
-        nghttp2_session_drain_stream_close_cb(
-            handle,
+        DrainStreamClose(
             static_cast<nghttp2_pending_stream_close_cb*>(item->cb));
         break;
       case NGHTTP2_CB_DATA_CHUNKS:
-        nghttp2_session_drain_data_chunks(
-            handle,
-            static_cast<nghttp2_pending_data_chunks_cb*>(item->cb));
+        DrainDataChunks(static_cast<nghttp2_pending_data_chunks_cb*>(item->cb));
         break;
       case NGHTTP2_CB_SETTINGS:
-        nghttp2_session_drain_settings(
-            handle,
-            static_cast<nghttp2_pending_settings_cb*>(item->cb));
+        DrainSettings(static_cast<nghttp2_pending_settings_cb*>(item->cb));
       case NGHTTP2_CB_NONE:
         break;
     }
-    handle->ready_callbacks_head = item->next;
+    ready_callbacks_head = item->next;
     cb_free_list.push(item);
   }
-  handle->ready_callbacks_tail = nullptr;
-  assert(handle->ready_callbacks_tail == nullptr);
-  assert(handle->ready_callbacks_head == nullptr);
+  ready_callbacks_tail = nullptr;
+  assert(ready_callbacks_tail == nullptr);
+  assert(ready_callbacks_head == nullptr);
 }
 
-inline void nghttp2_session_drain_send(nghttp2_session_t* handle) {
+void Nghttp2Session::DrainSend() {
   const uint8_t* data;
   nghttp2_pending_session_send_cb* cb = nullptr;
   nghttp2_pending_cb_list* item;
   size_t amount = 0;
   size_t offset = 0;
   size_t src_offset = 0;
-  uv_buf_t* current =
-      handle->listener->AllocateSend(SEND_BUFFER_RECOMMENDED_SIZE);
+  uv_buf_t* current = AllocateSend(SEND_BUFFER_RECOMMENDED_SIZE);
   assert(current);
   size_t remaining = current->len;
-  while ((amount = nghttp2_session_mem_send(handle->session, &data)) > 0) {
+  while ((amount = nghttp2_session_mem_send(session, &data)) > 0) {
     while (amount > 0) {
       if (amount > remaining) {
         // The amount copied does not fit within the remaining available
@@ -426,9 +395,9 @@ inline void nghttp2_session_drain_send(nghttp2_session_t* handle) {
         item = cb_free_list.pop();
         item->type = NGHTTP2_CB_SESSION_SEND;
         item->cb = cb;
-        LINKED_LIST_ADD(handle->ready_callbacks, item);
+        LINKED_LIST_ADD(ready_callbacks, item);
         offset = 0;
-        current = handle->listener->AllocateSend(SEND_BUFFER_RECOMMENDED_SIZE);
+        current = AllocateSend(SEND_BUFFER_RECOMMENDED_SIZE);
         assert(current);
         remaining = current->len;
         continue;
@@ -446,53 +415,50 @@ inline void nghttp2_session_drain_send(nghttp2_session_t* handle) {
   item = cb_free_list.pop();
   item->type = NGHTTP2_CB_SESSION_SEND;
   item->cb = cb;
-  LINKED_LIST_ADD(handle->ready_callbacks, item);
+  LINKED_LIST_ADD(ready_callbacks, item);
 }
 
-inline void nghttp2_session_send_and_make_ready(nghttp2_session_t* handle) {
-  assert(handle != nullptr);
-
-  while (nghttp2_session_want_write(handle->session)) {
-    nghttp2_session_drain_send(handle);
+inline void Nghttp2Session::SendAndMakeReady() {
+  while (nghttp2_session_want_write(session)) {
+    DrainSend();
   }
 
-  LINKED_LIST_ADD(handle->ready_callbacks,
-                  handle->pending_callbacks_head);
-  handle->pending_callbacks_head = nullptr;
-  handle->pending_callbacks_tail = nullptr;
+  LINKED_LIST_ADD(ready_callbacks,
+                  pending_callbacks_head);
+  pending_callbacks_head = nullptr;
+  pending_callbacks_tail = nullptr;
 }
 
-void OnSessionPrep(uv_prepare_t* t) {
-  nghttp2_session_t* handle = ContainerOf(&nghttp2_session_t::prep, t);
+void Nghttp2Session::OnSessionPrep(uv_prepare_t* t) {
+  Nghttp2Session* handle = ContainerOf(&Nghttp2Session::prep, t);
 
-  nghttp2_session_send_and_make_ready(handle);
-  nghttp2_session_drain_callbacks(handle);
+  handle->SendAndMakeReady();
+  handle->DrainCallbacks();
 }
 
-int OnBeginHeadersCallback(nghttp2_session* session,
-                           const nghttp2_frame* frame,
-                           void* user_data) {
-  nghttp2_session_t* handle = static_cast<nghttp2_session_t*>(user_data);
-  if (!nghttp2_session_has_stream(handle, frame->hd.stream_id)) {
-    nghttp2_stream_init(handle, frame->hd.stream_id, frame->headers.cat);
+int Nghttp2Session::OnBeginHeadersCallback(nghttp2_session* session,
+                                           const nghttp2_frame* frame,
+                                           void* user_data) {
+  Nghttp2Session* handle = static_cast<Nghttp2Session*>(user_data);
+  if (!handle->HasStream(frame->hd.stream_id)) {
+    handle->StreamInit(frame->hd.stream_id, frame->headers.cat);
   } else {
     std::shared_ptr<nghttp2_stream_t> stream_handle;
-    nghttp2_session_find_stream(handle, frame->hd.stream_id, &stream_handle);
+    handle->FindStream(frame->hd.stream_id, &stream_handle);
     stream_handle->current_headers_category = frame->headers.cat;
   }
   return 0;
 }
 
-int OnHeaderCallback(nghttp2_session* session,
-                     const nghttp2_frame* frame,
-                     nghttp2_rcbuf *name,
-                     nghttp2_rcbuf *value,
-                     uint8_t flags,
-                     void* user_data) {
-  nghttp2_session_t* handle = static_cast<nghttp2_session_t*>(user_data);
+int Nghttp2Session::OnHeaderCallback(nghttp2_session* session,
+                                     const nghttp2_frame* frame,
+                                     nghttp2_rcbuf *name,
+                                     nghttp2_rcbuf *value,
+                                     uint8_t flags,
+                                     void* user_data) {
+  Nghttp2Session* handle = static_cast<Nghttp2Session*>(user_data);
   std::shared_ptr<nghttp2_stream_t> stream_handle;
-  assert(nghttp2_session_find_stream(
-      handle, frame->hd.stream_id, &stream_handle));
+  assert(handle->FindStream(frame->hd.stream_id, &stream_handle));
 
   nghttp2_header_list* header = header_free_list.pop();
   header->name = name;
@@ -503,42 +469,37 @@ int OnHeaderCallback(nghttp2_session* session,
   return 0;
 }
 
-inline void nghttp2_queue_pending_data_chunks(
-    nghttp2_session_t* session,
+void Nghttp2Session::QueuePendingDataChunks(
     std::shared_ptr<nghttp2_stream_t> handle,
-    uint8_t flags = NGHTTP2_FLAG_NONE) {
+    uint8_t flags) {
   if (handle->current_data_chunks_cb != nullptr) {
     handle->current_data_chunks_cb->flags = flags;
     nghttp2_pending_cb_list* pending_cb = cb_free_list.pop();
     pending_cb->type = NGHTTP2_CB_DATA_CHUNKS;
     pending_cb->cb = handle->current_data_chunks_cb;
     handle->current_data_chunks_cb = nullptr;
-    nghttp2_queue_pending_callback(session, pending_cb);
+    QueuePendingCallback(pending_cb);
   }
 }
 
-int OnFrameReceive(nghttp2_session* session,
-                   const nghttp2_frame* frame,
-                   void* user_data) {
-  nghttp2_session_t* handle = static_cast<nghttp2_session_t*>(user_data);
+int Nghttp2Session::OnFrameReceive(nghttp2_session* session,
+                                   const nghttp2_frame* frame,
+                                   void* user_data) {
+  Nghttp2Session* handle = static_cast<Nghttp2Session*>(user_data);
   std::shared_ptr<nghttp2_stream_t> stream_handle;
   nghttp2_pending_cb_list* pending_cb;
   nghttp2_pending_headers_cb* cb;
   switch (frame->hd.type) {
     case NGHTTP2_DATA:
-      assert(nghttp2_session_find_stream(
-          handle, frame->hd.stream_id, &stream_handle));
+      assert(handle->FindStream(frame->hd.stream_id, &stream_handle));
       if (nghttp2_stream_is_reading(stream_handle)) {
         // If the stream is in the reading state, push the currently
         // buffered data chunks into the callback queue for processing.
-        nghttp2_queue_pending_data_chunks(handle,
-                                          stream_handle,
-                                          frame->hd.flags);
+        handle->QueuePendingDataChunks(stream_handle, frame->hd.flags);
       }
       break;
     case NGHTTP2_HEADERS:
-      assert(nghttp2_session_find_stream(
-          handle, frame->hd.stream_id, &stream_handle));
+      assert(handle->FindStream(frame->hd.stream_id, &stream_handle));
       cb = pending_headers_free_list.pop();
       cb->handle = stream_handle;
       cb->category = stream_handle->current_headers_category;
@@ -549,14 +510,14 @@ int OnFrameReceive(nghttp2_session* session,
       pending_cb = cb_free_list.pop();
       pending_cb->type = NGHTTP2_CB_HEADERS;
       pending_cb->cb = cb;
-      nghttp2_queue_pending_callback(handle, pending_cb);
+      handle->QueuePendingCallback(pending_cb);
       break;
     case NGHTTP2_SETTINGS:
       if ((frame->hd.flags & NGHTTP2_FLAG_ACK) == 0) {
         pending_cb = cb_free_list.pop();
         pending_cb->type = NGHTTP2_CB_SETTINGS;
         pending_cb->cb = pending_settings_free_list.pop();
-        nghttp2_queue_pending_callback(handle, pending_cb);
+        handle->QueuePendingCallback(pending_cb);
       }
     default:
       break;
@@ -564,33 +525,32 @@ int OnFrameReceive(nghttp2_session* session,
   return 0;
 }
 
-int OnStreamClose(nghttp2_session *session,
-                  int32_t stream_id,
-                  uint32_t error_code,
-                  void *user_data) {
-  nghttp2_session_t* handle = static_cast<nghttp2_session_t*>(user_data);
+int Nghttp2Session::OnStreamClose(nghttp2_session *session,
+                                  int32_t stream_id,
+                                  uint32_t error_code,
+                                  void *user_data) {
+  Nghttp2Session* handle = static_cast<Nghttp2Session*>(user_data);
   std::shared_ptr<nghttp2_stream_t> stream_handle;
-  assert(nghttp2_session_find_stream(handle, stream_id, &stream_handle));
+  assert(handle->FindStream(stream_id, &stream_handle));
   nghttp2_pending_cb_list* pending_cb = cb_free_list.pop();
   pending_cb->type = NGHTTP2_CB_STREAM_CLOSE;
   nghttp2_pending_stream_close_cb* cb = pending_stream_close_free_list.pop();
   cb->handle = stream_handle;
   cb->error_code = error_code;
   pending_cb->cb = cb;
-  nghttp2_queue_pending_callback(handle, pending_cb);
+  handle->QueuePendingCallback(pending_cb);
   return 0;
 }
 
-int OnBeginFrameReceived(nghttp2_session* session,
-                         const nghttp2_frame_hd* hd,
-                         void* user_data) {
-  nghttp2_session_t* handle = static_cast<nghttp2_session_t*>(user_data);
+int Nghttp2Session::OnBeginFrameReceived(nghttp2_session* session,
+                                         const nghttp2_frame_hd* hd,
+                                         void* user_data) {
+  Nghttp2Session* handle = static_cast<Nghttp2Session*>(user_data);
   std::shared_ptr<nghttp2_stream_t> stream_handle;
   nghttp2_pending_data_chunks_cb* chunks_cb;
   switch (hd->type) {
     case NGHTTP2_DATA:
-      assert(
-          nghttp2_session_find_stream(handle, hd->stream_id, &stream_handle));
+      assert(handle->FindStream(hd->stream_id, &stream_handle));
       if (stream_handle->current_data_chunks_cb == nullptr) {
         chunks_cb = pending_data_chunks_free_list.pop();
         chunks_cb->handle = stream_handle;
@@ -603,15 +563,15 @@ int OnBeginFrameReceived(nghttp2_session* session,
   return 0;
 }
 
-int OnDataChunkReceived(nghttp2_session *session,
-                        uint8_t flags,
-                        int32_t stream_id,
-                        const uint8_t *data,
-                        size_t len,
-                        void *user_data) {
-  nghttp2_session_t* handle = static_cast<nghttp2_session_t*>(user_data);
+int Nghttp2Session::OnDataChunkReceived(nghttp2_session *session,
+                                        uint8_t flags,
+                                        int32_t stream_id,
+                                        const uint8_t *data,
+                                        size_t len,
+                                        void *user_data) {
+  Nghttp2Session* handle = static_cast<Nghttp2Session*>(user_data);
   std::shared_ptr<nghttp2_stream_t> stream_handle;
-  assert(nghttp2_session_find_stream(handle, stream_id, &stream_handle));
+  assert(handle->FindStream(stream_id, &stream_handle));
   nghttp2_pending_data_chunks_cb* chunks_cb =
       stream_handle->current_data_chunks_cb;
   if (chunks_cb == nullptr) {
@@ -632,29 +592,25 @@ int OnDataChunkReceived(nghttp2_session *session,
   return 0;
 }
 
-ssize_t OnSelectPadding(nghttp2_session* session,
-                        const nghttp2_frame* frame,
-                        size_t maxPayloadLen,
-                        void* user_data) {
-  nghttp2_session_t* handle = static_cast<nghttp2_session_t*>(user_data);
-  assert(handle->listener->HasGetPaddingCallback());
-  return handle->listener->GetPadding(frame->hd.length, maxPayloadLen);
+ssize_t Nghttp2Session::OnSelectPadding(nghttp2_session* session,
+                                        const nghttp2_frame* frame,
+                                        size_t maxPayloadLen,
+                                        void* user_data) {
+  Nghttp2Session* handle = static_cast<Nghttp2Session*>(user_data);
+  assert(handle->HasGetPaddingCallback());
+  return handle->GetPadding(frame->hd.length, maxPayloadLen);
 }
 
-// Initialize the nghttp2_session_t handle by creating and
-// assigning the nghttp2_session instance and associated
+// Initialize the Nghttp2Session handle by creating and
+// assigning the Nghttp2Session instance and associated
 // uv_loop_t.
-inline int nghttp2_session_init(uv_loop_t* loop,
-                                nghttp2_session_t* handle,
-                                NodeHTTP2SessionListener* listener,
-                                const nghttp2_session_type type,
-                                nghttp2_option* options,
-                                nghttp2_mem* mem) {
-  handle->loop = loop;
-  handle->session_type = type;
+int Nghttp2Session::Init(uv_loop_t* loop,
+                         const nghttp2_session_type type,
+                         nghttp2_option* options,
+                         nghttp2_mem* mem) {
+  loop = loop;
+  session_type = type;
   int ret = 0;
-
-  handle->listener = listener;
 
   nghttp2_session_callbacks* callbacks;
   nghttp2_session_callbacks_new(&callbacks);
@@ -671,7 +627,7 @@ inline int nghttp2_session_init(uv_loop_t* loop,
   nghttp2_session_callbacks_set_on_data_chunk_recv_callback(
     callbacks, OnDataChunkReceived);
 
-  if (listener->HasGetPaddingCallback()) {
+  if (HasGetPaddingCallback()) {
     nghttp2_session_callbacks_set_select_padding_callback(
       callbacks, OnSelectPadding);
   }
@@ -686,16 +642,16 @@ inline int nghttp2_session_init(uv_loop_t* loop,
 
   switch (type) {
     case NGHTTP2_SESSION_SERVER:
-      ret = nghttp2_session_server_new3(&handle->session,
+      ret = nghttp2_session_server_new3(&session,
                                         callbacks,
-                                        handle,
+                                        this,
                                         opts,
                                         mem);
       break;
     case NGHTTP2_SESSION_CLIENT:
-      ret = nghttp2_session_client_new3(&handle->session,
+      ret = nghttp2_session_client_new3(&session,
                                         callbacks,
-                                        handle,
+                                        this,
                                         opts,
                                         mem);
       break;
@@ -705,75 +661,68 @@ inline int nghttp2_session_init(uv_loop_t* loop,
   }
   nghttp2_session_callbacks_del(callbacks);
 
-  uv_prepare_init(loop, &(handle->prep));
-  uv_prepare_start(&(handle->prep), OnSessionPrep);
+  uv_prepare_init(loop, &prep);
+  uv_prepare_start(&prep, OnSessionPrep);
   return ret;
 }
 
-void StreamDeleter(nghttp2_stream_t* handle) {
-  nghttp2_session_t* session = handle->session;
-  assert(session);
-  session->listener->OnStreamFree(handle);
+void Nghttp2Session::StreamDeleter(nghttp2_stream_t* handle) {
+  Nghttp2Session* session = handle->session;
+  assert(session != nullptr);
+  session->OnStreamFree(handle);
   stream_free_list.push(handle);
 }
 
-inline std::shared_ptr<nghttp2_stream_t> nghttp2_stream_init(
-    nghttp2_session_t* handle,
+std::shared_ptr<nghttp2_stream_t> Nghttp2Session::StreamInit(
     int32_t id,
-    nghttp2_headers_category category = NGHTTP2_HCAT_HEADERS) {
+    nghttp2_headers_category category) {
   std::shared_ptr<nghttp2_stream_t> stream_handle =
       std::shared_ptr<nghttp2_stream_t>(stream_free_list.pop(), StreamDeleter);
-  stream_handle->session = handle;
+  stream_handle->session = this;
   stream_handle->id = id;
   stream_handle->current_headers_category = category;
-  handle->streams[id] = stream_handle;
-  handle->listener->OnStreamInit(stream_handle);
+  streams[id] = stream_handle;
+  OnStreamInit(stream_handle);
   return stream_handle;
 }
 
-// Returns non-zero if the session is alive, zero if it is not
+// Returns true if the session is alive, false if it is not
 // A session that is not alive is ok to be freed
-inline int nghttp2_session_is_alive(nghttp2_session_t* handle) {
-  if (nghttp2_session_want_read(handle->session) ||
-      nghttp2_session_want_write(handle->session)) {
-    return 1;
-  }
-  return 0;
+bool Nghttp2Session::IsAliveSession() {
+  return nghttp2_session_want_read(session) ||
+         nghttp2_session_want_write(session);
 }
 
-inline int nghttp2_session_free(nghttp2_session_t* handle) {
-  assert(handle != nullptr);
-  assert(handle->session != nullptr);
-  assert(handle->pending_callbacks_head == nullptr);
-  assert(handle->pending_callbacks_tail == nullptr);
-  assert(handle->ready_callbacks_head == nullptr);
-  assert(handle->ready_callbacks_tail == nullptr);
+int Nghttp2Session::Free() {
+  assert(session != nullptr);
+  assert(pending_callbacks_head == nullptr);
+  assert(pending_callbacks_tail == nullptr);
+  assert(ready_callbacks_head == nullptr);
+  assert(ready_callbacks_tail == nullptr);
 
-  uv_prepare_stop(&(handle->prep));
+  uv_prepare_stop(&prep);
   auto PrepClose = [](uv_handle_t* handle) {
-    nghttp2_session_t* session =
-        ContainerOf(&nghttp2_session_t::prep,
+    Nghttp2Session* session =
+        ContainerOf(&Nghttp2Session::prep,
                     reinterpret_cast<uv_prepare_t*>(handle));
 
-    session->listener->OnFreeSession();
+    session->OnFreeSession();
   };
-  uv_close(reinterpret_cast<uv_handle_t*>(&(handle->prep)), PrepClose);
+  uv_close(reinterpret_cast<uv_handle_t*>(&prep), PrepClose);
 
-  nghttp2_session_terminate_session(handle->session, NGHTTP2_NO_ERROR);
-  nghttp2_session_del(handle->session);
-  handle->session = nullptr;
-  handle->loop = nullptr;
+  nghttp2_session_terminate_session(session, NGHTTP2_NO_ERROR);
+  nghttp2_session_del(session);
+  session = nullptr;
+  loop = nullptr;
   return 1;
 }
 
 // Write data received from the socket to the underlying nghttp2_session.
-inline ssize_t nghttp2_session_write(nghttp2_session_t* handle,
-                                     const uv_buf_t* bufs,
-                                     unsigned int nbufs) {
+ssize_t Nghttp2Session::Write(const uv_buf_t* bufs, unsigned int nbufs) {
   size_t total = 0;
   for (unsigned int n = 0; n < nbufs; n++) {
     ssize_t ret =
-      nghttp2_session_mem_recv(handle->session,
+      nghttp2_session_mem_recv(session,
                                reinterpret_cast<uint8_t*>(bufs[n].base),
                                bufs[n].len);
     if (ret < 0) {
@@ -786,10 +735,9 @@ inline ssize_t nghttp2_session_write(nghttp2_session_t* handle,
 }
 
 // Submits new settings to the underlying nghttp2_session.
-inline int nghttp2_submit_settings(nghttp2_session_t* handle,
-                                   const nghttp2_settings_entry iv[],
+int Nghttp2Session::SubmitSettings(const nghttp2_settings_entry iv[],
                                    size_t niv) {
-  return nghttp2_submit_settings(handle->session,
+  return nghttp2_submit_settings(session,
                                  NGHTTP2_FLAG_NONE, iv, niv);
 }
 
@@ -798,7 +746,7 @@ inline int nghttp2_submit_settings(nghttp2_session_t* handle,
 inline int nghttp2_submit_info(std::shared_ptr<nghttp2_stream_t> handle,
                                nghttp2_nv* nva, size_t len) {
   std::shared_ptr<nghttp2_stream_t> h = handle;
-  nghttp2_session_t* session = h->session;
+  Nghttp2Session* session = h->session;
   return nghttp2_submit_headers(session->session,
                                 NGHTTP2_FLAG_NONE,
                                 h->id, nullptr,
@@ -809,7 +757,7 @@ inline int nghttp2_submit_priority(std::shared_ptr<nghttp2_stream_t> handle,
                                    nghttp2_priority_spec* prispec,
                                    bool silent) {
   std::shared_ptr<nghttp2_stream_t> h = handle;
-  nghttp2_session_t* session = h->session;
+  Nghttp2Session* session = h->session;
 
   return silent ?
       nghttp2_session_change_stream_priority(session->session,
@@ -823,7 +771,7 @@ inline int nghttp2_submit_priority(std::shared_ptr<nghttp2_stream_t> handle,
 inline int nghttp2_submit_rst_stream(std::shared_ptr<nghttp2_stream_t> handle,
                                      const uint32_t code) {
   std::shared_ptr<nghttp2_stream_t> h = handle;
-  nghttp2_session_t* session = h->session;
+  Nghttp2Session* session = h->session;
   return nghttp2_submit_rst_stream(session->session,
                                    NGHTTP2_FLAG_NONE,
                                    h->id,
@@ -838,14 +786,14 @@ inline int32_t nghttp2_submit_push_promise(
     std::shared_ptr<nghttp2_stream_t>* assigned,
     bool emptyPayload) {
   std::shared_ptr<nghttp2_stream_t> h = handle;
-  nghttp2_session_t* session = h->session;
+  Nghttp2Session* session = h->session;
 
   int32_t ret = nghttp2_submit_push_promise(session->session,
                                             NGHTTP2_FLAG_NONE,
                                             h->id, nva, len,
                                             nullptr);
   if (ret > 0) {
-    *assigned = nghttp2_stream_init(session, ret);
+    *assigned = session->StreamInit(ret);
     if (emptyPayload) nghttp2_stream_shutdown(*assigned);
   }
   return ret;
@@ -861,12 +809,12 @@ inline int nghttp2_submit_response(
     size_t len,
     bool emptyPayload) {
   std::shared_ptr<nghttp2_stream_t> h = handle;
-  nghttp2_session_t* session = h->session;
+  Nghttp2Session* session = h->session;
 
   nghttp2_data_provider* provider = nullptr;
   nghttp2_data_provider prov;
   prov.source.ptr = &handle;
-  prov.read_callback = OnStreamRead;
+  prov.read_callback = Nghttp2Session::OnStreamRead;
   if (!emptyPayload && nghttp2_stream_writable(h))
     provider = &prov;
 
@@ -878,8 +826,7 @@ inline int nghttp2_submit_response(
 // Initiate a request. If writable is true (the default), then
 // an nghttp2_data_provider will be initialized, causing at
 // least one (possibly empty) data frame to to be sent.
-inline int32_t nghttp2_submit_request(
-    nghttp2_session_t* handle,
+inline int32_t Nghttp2Session::SubmitRequest(
     nghttp2_priority_spec* prispec,
     nghttp2_nv* nva,
     size_t len,
@@ -887,16 +834,16 @@ inline int32_t nghttp2_submit_request(
     bool emptyPayload) {
   nghttp2_data_provider* provider = nullptr;
   nghttp2_data_provider prov;
-  prov.source.ptr = &handle;
+  prov.source.ptr = this;
   prov.read_callback = OnStreamRead;
   if (!emptyPayload)
     provider = &prov;
-  int32_t ret = nghttp2_submit_request(handle->session,
+  int32_t ret = nghttp2_submit_request(session,
                                        prispec, nva, len,
                                        provider, nullptr);
   // Assign the nghttp2_stream_t handle
   if (ret > 0) {
-    *assigned = nghttp2_stream_init(handle, ret);
+    *assigned = StreamInit(ret);
     if (emptyPayload) nghttp2_stream_shutdown(*assigned);
   }
   return ret;
@@ -905,7 +852,7 @@ inline int32_t nghttp2_submit_request(
 // Mark the writable side of the nghttp2_stream as being shutdown.
 inline int nghttp2_stream_shutdown(std::shared_ptr<nghttp2_stream_t> handle) {
   std::shared_ptr<nghttp2_stream_t> h = handle;
-  nghttp2_session_t* session = h->session;
+  Nghttp2Session* session = h->session;
   h->flags |= NGHTTP2_STREAM_FLAG_SHUT;
   nghttp2_session_resume_data(session->session, h->id);
   return 0;
@@ -932,7 +879,7 @@ inline int nghttp2_stream_write(nghttp2_stream_write_t* req,
                                 unsigned int nbufs,
                                 nghttp2_stream_write_cb cb) {
   std::shared_ptr<nghttp2_stream_t> h = handle;
-  nghttp2_session_t* session = h->session;
+  Nghttp2Session* session = h->session;
   if (!nghttp2_stream_writable(h)) {
     if (cb != nullptr)
       cb(req, UV_EOF);
@@ -960,7 +907,7 @@ inline int nghttp2_stream_write(nghttp2_stream_write_t* req,
 
 inline void nghttp2_stream_read_start(
     std::shared_ptr<nghttp2_stream_t> handle) {
-  nghttp2_session_t* session = handle->session;
+  Nghttp2Session* session = handle->session;
   if (handle->reading == 0) {
     // If handle->reading is less than zero, read_start had never previously
     // been called. If handle->reading is zero, reading had started and read
@@ -973,11 +920,11 @@ inline void nghttp2_stream_read_start(
                                           handle->prev_local_window_size);
   }
   handle->reading = 1;
-  nghttp2_queue_pending_data_chunks(session, handle);
+  session->QueuePendingDataChunks(handle);
 }
 
 inline void nghttp2_stream_read_stop(std::shared_ptr<nghttp2_stream_t> handle) {
-  nghttp2_session_t* session = handle->session;
+  Nghttp2Session* session = handle->session;
   handle->reading = 0;
   // When not reading, explicitly set the local window size to 0 so that
   // the peer does not keep sending data that has to be buffered

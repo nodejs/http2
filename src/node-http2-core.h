@@ -15,7 +15,6 @@
 namespace node {
 namespace http2 {
 
-typedef struct nghttp2_session_s nghttp2_session_t;
 typedef struct nghttp2_stream_s nghttp2_stream_t;
 typedef struct nghttp2_stream_write_s nghttp2_stream_write_t;
 typedef struct nghttp2_data_chunk_s nghttp2_data_chunk_t;
@@ -113,10 +112,38 @@ struct nghttp2_pending_cb_list {
   nghttp2_pending_cb_list* next = nullptr;
 };
 
-class NodeHTTP2SessionListener {
+// Handle Types
+class Nghttp2Session {
  public:
-  virtual ~NodeHTTP2SessionListener() {}
+  inline bool HasStream(int32_t id);
+  inline bool FindStream(int32_t id,
+                          std::shared_ptr<nghttp2_stream_t>* stream_handle);
 
+  inline int32_t SubmitRequest(
+      nghttp2_priority_spec* prispec,
+      nghttp2_nv* nva,
+      size_t len,
+      std::shared_ptr<nghttp2_stream_t>* assigned,
+      bool emptyPayload = true);
+
+  inline void SubmitShutdownNotice();
+
+  inline int Init(
+      uv_loop_t*,
+      const nghttp2_session_type type = NGHTTP2_SESSION_SERVER,
+      nghttp2_option* options = nullptr,
+      nghttp2_mem* mem = nullptr);
+  inline int Free();
+
+  inline bool IsAliveSession();
+  inline ssize_t Write(const uv_buf_t* bufs, unsigned int nbufs);
+
+  inline int SubmitSettings(const nghttp2_settings_entry iv[], size_t niv);
+  inline std::shared_ptr<nghttp2_stream_t> StreamInit(
+        int32_t id,
+        nghttp2_headers_category category = NGHTTP2_HCAT_HEADERS);
+
+ protected:
   virtual void OnStreamInit(std::shared_ptr<nghttp2_stream_t> stream) {}
   virtual void OnStreamFree(nghttp2_stream_t* stream) {}
   virtual void Send(uv_buf_t* buf,
@@ -138,15 +165,71 @@ class NodeHTTP2SessionListener {
   virtual uv_buf_t* AllocateSend(size_t suggested_size) = 0;
 
   virtual bool HasGetPaddingCallback() { return false; }
-};
 
-// Handle Types
-struct nghttp2_session_s {
+ private:
+  static void OnSessionPrep(uv_prepare_t* t);
+  inline void SendAndMakeReady();
+  inline void DrainSend();
+  inline void QueuePendingCallback(nghttp2_pending_cb_list* item);
+  inline void DrainHeaders(nghttp2_pending_headers_cb*);
+  inline void DrainStreamClose(nghttp2_pending_stream_close_cb*);
+  inline void DrainSend(nghttp2_pending_session_send_cb*);
+  inline void DrainDataChunks(nghttp2_pending_data_chunks_cb*);
+  inline void DrainSettings(nghttp2_pending_settings_cb*);
+  inline void DrainCallbacks();
+
+  static void DeleteDataChunks(nghttp2_data_chunks_t*);
+  static void StreamDeleter(nghttp2_stream_t* handle);
+
+  /* callbacks for nghttp2 */
+  static int OnBeginHeadersCallback(nghttp2_session* session,
+                                    const nghttp2_frame* frame,
+                                    void* user_data);
+  static int OnHeaderCallback(nghttp2_session* session,
+                              const nghttp2_frame* frame,
+                              nghttp2_rcbuf* name,
+                              nghttp2_rcbuf* value,
+                              uint8_t flags,
+                              void* user_data);
+  static int OnFrameReceive(nghttp2_session* session,
+                            const nghttp2_frame* frame,
+                            void* user_data);
+  static int OnStreamClose(nghttp2_session* session,
+                           int32_t stream_id,
+                           uint32_t error_code,
+                           void* user_data);
+  static int OnBeginFrameReceived(nghttp2_session* session,
+                                  const nghttp2_frame_hd* hd,
+                                  void* user_data);
+  static int OnDataChunkReceived(nghttp2_session* session,
+                                 uint8_t flags,
+                                 int32_t stream_id,
+                                 const uint8_t *data,
+                                 size_t len,
+                                 void* user_data);
+ public:
+  // TODO(addaleax): These should be private
+  nghttp2_session* session;
+
+  inline void QueuePendingDataChunks(
+    std::shared_ptr<nghttp2_stream_t> handle,
+    uint8_t flags = NGHTTP2_FLAG_NONE);
+
+  static ssize_t OnStreamRead(nghttp2_session* session,
+                              int32_t stream_id,
+                              uint8_t* buf,
+                              size_t length,
+                              uint32_t* flags,
+                              nghttp2_data_source* source,
+                              void* user_data);
+ private:
+  static ssize_t OnSelectPadding(nghttp2_session* session,
+                                 const nghttp2_frame* frame,
+                                 size_t maxPayloadLen,
+                                 void* user_data);
   uv_loop_t* loop;
   uv_prepare_t prep;
-  nghttp2_session* session;
   nghttp2_session_type session_type;
-  NodeHTTP2SessionListener* listener;
   nghttp2_pending_cb_list* pending_callbacks_head = nullptr;
   nghttp2_pending_cb_list* pending_callbacks_tail = nullptr;
   nghttp2_pending_cb_list* ready_callbacks_head = nullptr;
@@ -155,7 +238,7 @@ struct nghttp2_session_s {
 };
 
 struct nghttp2_stream_s {
-  nghttp2_session_t* session = nullptr;
+  Nghttp2Session* session = nullptr;
   int32_t id = 0;
   int flags = 0;
   nghttp2_stream_write_queue* queue_head = nullptr;
@@ -187,43 +270,6 @@ struct nghttp2_data_chunks_s {
   MaybeStackBuffer<uv_buf_t, MAX_BUFFER_COUNT> buf;
 };
 
-inline bool nghttp2_session_has_stream(
-    nghttp2_session_t* handle,
-    int32_t id);
-
-inline bool nghttp2_session_find_stream(
-    nghttp2_session_t* handle,
-    int32_t id,
-    std::shared_ptr<nghttp2_stream_t>* stream_handle);
-
-inline int nghttp2_session_init(
-    uv_loop_t*,
-    nghttp2_session_t* handle,
-    NodeHTTP2SessionListener* listener,
-    const nghttp2_session_type type = NGHTTP2_SESSION_SERVER,
-    nghttp2_option* options = nullptr,
-    nghttp2_mem* mem = nullptr);
-
-inline std::shared_ptr<nghttp2_stream_t> nghttp2_stream_init(
-    nghttp2_session_t* handle,
-    int32_t id,
-    nghttp2_headers_category category);
-
-inline int nghttp2_session_free(nghttp2_session_t* handle);
-
-inline int nghttp2_session_is_alive(
-    nghttp2_session_t* handle);
-
-inline ssize_t nghttp2_session_write(
-    nghttp2_session_t* handle,
-    const uv_buf_t* bufs,
-    unsigned int nbufs);
-
-inline int nghttp2_submit_settings(
-    nghttp2_session_t* handle,
-    const nghttp2_settings_entry iv[],
-    size_t niv);
-
 inline int nghttp2_stream_read_start(
     std::shared_ptr<nghttp2_stream_t> handle,
     nghttp2_stream_alloc_cb alloc_cb,
@@ -241,14 +287,6 @@ inline int nghttp2_submit_response(
     nghttp2_nv* nva,
     size_t len,
     bool emptyPayload = false);
-
-inline int32_t nghttp2_submit_request(
-    nghttp2_session_t* handle,
-    nghttp2_priority_spec* prispec,
-    nghttp2_nv* nva,
-    size_t len,
-    std::shared_ptr<nghttp2_stream_t>* assigned,
-    bool emptyPayload = true);
 
 inline int nghttp2_submit_info(
     std::shared_ptr<nghttp2_stream_t> handle,

@@ -364,7 +364,7 @@ typedef uint32_t(*get_setting)(nghttp2_session* session,
 
 class Http2Session : public AsyncWrap,
                      public StreamBase,
-                     public NodeHTTP2SessionListener {
+                     public Nghttp2Session {
  public:
   Http2Session(Environment* env,
                Local<Object> wrap,
@@ -378,7 +378,7 @@ class Http2Session : public AsyncWrap,
 
     padding_strategy_ = opts.GetPaddingStrategy();
 
-    nghttp2_session_init(env->event_loop(), &handle_, this, type, *opts);
+    Init(env->event_loop(), type, *opts);
     stream_buf_.AllocateSufficientStorage(kAllocBufferSize);
   }
 
@@ -396,8 +396,8 @@ class Http2Session : public AsyncWrap,
                                const uv_buf_t* bufs,
                                uv_handle_type pending,
                                void* ctx);
-
-  static void OnFreeSession(nghttp2_session_t* session);
+ protected:
+  void OnFreeSession() override;
 
   ssize_t OnMaxFrameSizePadding(size_t frameLength,
                                 size_t maxPayloadLen);
@@ -459,6 +459,7 @@ class Http2Session : public AsyncWrap,
     return 0;
   }
 
+ public:
   void Consume(Local<External> external);
   void Unconsume();
 
@@ -489,16 +490,11 @@ class Http2Session : public AsyncWrap,
     return sizeof(*this);
   }
 
-  nghttp2_session_t* operator*() {
-    return &handle_;
-  }
-
   char* stream_alloc() {
     return *stream_buf_;
   }
 
  private:
-  nghttp2_session_t handle_;
   StreamBase* stream_;
   StreamResource::Callback<StreamResource::AllocCb> prev_alloc_cb_;
   StreamResource::Callback<StreamResource::ReadCb> prev_read_cb_;
@@ -516,7 +512,7 @@ class SessionShutdownWrap : public ReqWrap<uv_idle_t> {
 
   SessionShutdownWrap(Environment* env,
                       v8::Local<v8::Object> req_wrap_obj,
-                      nghttp2_session_t* handle,
+                      Nghttp2Session* handle,
                       uint32_t errorCode,
                       int32_t lastStreamID,
                       Local<Value> opaqueData,
@@ -548,10 +544,6 @@ class SessionShutdownWrap : public ReqWrap<uv_idle_t> {
   }
   size_t self_size() const override { return sizeof(*this); }
 
-  nghttp2_session_t* handle() {
-    return handle_;
-  }
-
   uint32_t errorCode() {
     return errorCode_;
   }
@@ -572,8 +564,11 @@ class SessionShutdownWrap : public ReqWrap<uv_idle_t> {
     return opaqueData_.length();
   }
 
+  Nghttp2Session* handle() {
+    return handle_;
+  }
  private:
-  nghttp2_session_t* handle_;
+  Nghttp2Session* handle_;
   DoneCb cb_;
   uint32_t errorCode_;
   int32_t lastStreamID_;
