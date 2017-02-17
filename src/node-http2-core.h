@@ -229,9 +229,6 @@ inline int nghttp2_stream_read_start(
     nghttp2_stream_alloc_cb alloc_cb,
     nghttp2_stream_read_cb read_cb);
 
-inline int nghttp2_stream_read_stop(
-    nghttp2_session_t* handle);
-
 inline int nghttp2_stream_write(
     nghttp2_stream_write_t* req,
     std::shared_ptr<nghttp2_stream_t> handle,
