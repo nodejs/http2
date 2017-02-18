@@ -626,20 +626,22 @@ class SessionSendBuffer : public WriteWrap {
 class ExternalHeaderNameResource :
     public String::ExternalOneByteStringResource {
  public:
-   ExternalHeaderNameResource(nghttp2_rcbuf* buf)
-       : buf_(buf), vec_(nghttp2_rcbuf_get_buf(buf)) {
-   }
-   ~ExternalHeaderNameResource() override {
-     nghttp2_rcbuf_decref(buf_);
-     buf_ = nullptr;
-   }
-   const char* data() const override {
-     return const_cast<const char*>(reinterpret_cast<char*>(vec_.base));
-   }
+  explicit ExternalHeaderNameResource(nghttp2_rcbuf* buf)
+     : buf_(buf), vec_(nghttp2_rcbuf_get_buf(buf)) {
+  }
 
-   size_t length() const override {
-     return vec_.len;
-   }
+  ~ExternalHeaderNameResource() override {
+    nghttp2_rcbuf_decref(buf_);
+    buf_ = nullptr;
+  }
+
+  const char* data() const override {
+    return const_cast<const char*>(reinterpret_cast<char*>(vec_.base));
+  }
+
+  size_t length() const override {
+    return vec_.len;
+  }
 
   static Local<String> New(Isolate* isolate, nghttp2_rcbuf* buf) {
     EscapableHandleScope scope(isolate);
@@ -660,9 +662,10 @@ class ExternalHeaderNameResource :
 
     return scope.Escape(str.ToLocalChecked());
   }
+
  private:
-   nghttp2_rcbuf* buf_;
-   nghttp2_vec vec_;
+  nghttp2_rcbuf* buf_;
+  nghttp2_vec vec_;
 };
 
 class Headers {
@@ -713,7 +716,7 @@ class Headers {
   }
 
  private:
-   MaybeStackBuffer<nghttp2_nv> headers_;
+  MaybeStackBuffer<nghttp2_nv> headers_;
 };
 
 }  // namespace http2
