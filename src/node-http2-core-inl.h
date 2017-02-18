@@ -245,6 +245,8 @@ ssize_t Nghttp2Session::OnStreamRead(nghttp2_session* session,
   int writable = stream_handle->queue_head_ != nullptr ||
                  nghttp2_stream_writable(stream_handle);
   if (offset == 0 && writable && stream_handle->queue_head_ == nullptr) {
+    /* TODO(addaleax): ask @jasnell what the correct semantics are...
+       this is dead code right now */
     return NGHTTP2_ERR_DEFERRED;
   }
   if (!writable) {
