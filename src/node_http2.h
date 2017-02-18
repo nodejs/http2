@@ -420,17 +420,17 @@ class Http2Session : public AsyncWrap,
     return OnCallbackPadding(frameLength, maxPayloadLen);
   }
 
-  void OnHeaders(std::shared_ptr<nghttp2_stream_t> stream,
+  void OnHeaders(std::shared_ptr<Nghttp2Stream> stream,
                  nghttp2_header_list* headers,
                  nghttp2_headers_category cat,
                  uint8_t flags) override;
   void OnStreamClose(int32_t id, uint32_t error_code) override;
   void Send(uv_buf_t* bufs,
             size_t total) override;
-  void OnDataChunks(std::shared_ptr<nghttp2_stream_t> stream,
+  void OnDataChunks(std::shared_ptr<Nghttp2Stream> stream,
                     std::shared_ptr<nghttp2_data_chunks_t> chunks) override;
   void OnSettings() override;
-  void OnTrailers(std::shared_ptr<nghttp2_stream_t> stream,
+  void OnTrailers(std::shared_ptr<Nghttp2Stream> stream,
                   MaybeStackBuffer<nghttp2_nv>* trailers) override;
   uv_buf_t* AllocateSend(size_t recommended) override;
 

@@ -147,14 +147,14 @@ void Http2Session::GetStreamState(const FunctionCallbackInfo<Value>& args) {
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
   int32_t id = args[0]->Int32Value();
   nghttp2_session* s = session->session;
-  std::shared_ptr<nghttp2_stream_t> stream_handle;
+  std::shared_ptr<Nghttp2Stream> stream_handle;
 
   if (!(stream_handle = session->FindStream(args[0]->Int32Value()))) {
     // invalid stream
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
   nghttp2_stream* stream =
-      nghttp2_session_find_stream(s, stream_handle->id);
+      nghttp2_session_find_stream(s, stream_handle->id());
 
   Environment* env = Environment::GetCurrent(args);
   Isolate* isolate = env->isolate();
@@ -378,15 +378,14 @@ void Http2Session::SubmitPriority(const FunctionCallbackInfo<Value>& args) {
   CHECK_GE(parent_id, 0);
   CHECK_GE(weight, 0);
 
-  std::shared_ptr<nghttp2_stream_t> stream_handle;
+  std::shared_ptr<Nghttp2Stream> stream_handle;
   if (!(stream_handle = session->FindStream(stream_id))) {
     // invalid stream
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
   nghttp2_priority_spec_init(&spec, parent_id, weight, exclusive ? 1 : 0);
 
-  args.GetReturnValue().Set(
-      nghttp2_submit_priority(stream_handle, &spec, silent));
+  args.GetReturnValue().Set(stream_handle->SubmitPriority(&spec, silent));
 }
 
 void Http2Session::SubmitSettings(const FunctionCallbackInfo<Value>& args) {
@@ -427,13 +426,13 @@ void Http2Session::SubmitRstStream(const FunctionCallbackInfo<Value>& args) {
   Http2Session* session;
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
 
-  std::shared_ptr<nghttp2_stream_t> stream_handle;
+  std::shared_ptr<Nghttp2Stream> stream_handle;
   if (!(stream_handle = session->FindStream(args[0]->Int32Value()))) {
     // invalid stream
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
   args.GetReturnValue().Set(
-      nghttp2_submit_rst_stream(stream_handle, args[1]->Uint32Value()));
+      stream_handle->SubmitRstStream(args[1]->Uint32Value()));
 }
 
 void Http2Session::SubmitRequest(const FunctionCallbackInfo<Value>& args) {
@@ -460,7 +459,7 @@ void Http2Session::SubmitRequest(const FunctionCallbackInfo<Value>& args) {
 
   Headers list(isolate, headers);
 
-  std::shared_ptr<nghttp2_stream_t> assigned;
+  std::shared_ptr<Nghttp2Stream> assigned;
   args.GetReturnValue().Set(
       session->Nghttp2Session::SubmitRequest(&prispec,
                                              *list, list.length(),
@@ -472,7 +471,7 @@ void Http2Session::SubmitResponse(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[1]->IsArray());
 
   Http2Session* session;
-  std::shared_ptr<nghttp2_stream_t> stream_handle;
+  std::shared_ptr<Nghttp2Stream> stream_handle;
 
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
   Environment* env = session->env();
@@ -488,7 +487,7 @@ void Http2Session::SubmitResponse(const FunctionCallbackInfo<Value>& args) {
   Headers list(isolate, headers);
 
   args.GetReturnValue().Set(
-      nghttp2_submit_response(stream_handle, *list, list.length(), endStream));
+      stream_handle->SubmitResponse(*list, list.length(), endStream));
 }
 
 void Http2Session::SendHeaders(const FunctionCallbackInfo<Value>& args) {
@@ -496,7 +495,7 @@ void Http2Session::SendHeaders(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[1]->IsArray());
 
   Http2Session* session;
-  std::shared_ptr<nghttp2_stream_t> stream_handle;
+  std::shared_ptr<Nghttp2Stream> stream_handle;
 
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
   Environment* env = session->env();
@@ -509,19 +508,18 @@ void Http2Session::SendHeaders(const FunctionCallbackInfo<Value>& args) {
   Local<Array> headers = args[1].As<Array>();
   Headers list(isolate, headers);
 
-  args.GetReturnValue().Set(
-      nghttp2_submit_info(stream_handle, *list, list.length()));
+  args.GetReturnValue().Set(stream_handle->SubmitInfo(*list, list.length()));
 }
 
 void Http2Session::ShutdownStream(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[0]->IsNumber());
   Http2Session* session;
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
-  std::shared_ptr<nghttp2_stream_t> stream_handle;
+  std::shared_ptr<Nghttp2Stream> stream_handle;
   if (!(stream_handle = session->FindStream(args[0]->Int32Value()))) {
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
-  args.GetReturnValue().Set(nghttp2_stream_shutdown(stream_handle));
+  args.GetReturnValue().Set(stream_handle->Shutdown());
 }
 
 
@@ -529,11 +527,11 @@ void Http2Session::StreamReadStart(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[0]->IsNumber());
   Http2Session* session;
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
-  std::shared_ptr<nghttp2_stream_t> stream_handle;
+  std::shared_ptr<Nghttp2Stream> stream_handle;
   if (!(stream_handle = session->FindStream(args[0]->Int32Value()))) {
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
-  nghttp2_stream_read_start(stream_handle);
+  stream_handle->ReadStart();
   args.GetReturnValue().Set(0);
 }
 
@@ -542,11 +540,11 @@ void Http2Session::StreamReadStop(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[0]->IsNumber());
   Http2Session* session;
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
-  std::shared_ptr<nghttp2_stream_t> stream_handle;
+  std::shared_ptr<Nghttp2Stream> stream_handle;
   if (!(stream_handle = session->FindStream(args[0]->Int32Value()))) {
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
-  nghttp2_stream_read_stop(stream_handle);
+  stream_handle->ReadStop();
   args.GetReturnValue().Set(0);
 }
 
@@ -633,8 +631,8 @@ void Http2Session::SubmitPushPromise(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[0]->IsNumber());  // parent stream ID
   CHECK(args[1]->IsArray());  // headers array
 
-  std::shared_ptr<nghttp2_stream_t> parent;
-  std::shared_ptr<nghttp2_stream_t> assigned;
+  std::shared_ptr<Nghttp2Stream> parent;
+  std::shared_ptr<Nghttp2Stream> assigned;
 
   if (!(parent = session->FindStream(args[0]->Int32Value()))) {
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
@@ -644,8 +642,8 @@ void Http2Session::SubmitPushPromise(const FunctionCallbackInfo<Value>& args) {
   bool endStream = args[2]->BooleanValue();
   Headers list(isolate, headers);
 
-  int32_t ret = nghttp2_submit_push_promise(parent, *list, list.length(),
-                                            &assigned, endStream);
+  int32_t ret = parent->SubmitPushPromise(*list, list.length(),
+                                          &assigned, endStream);
   args.GetReturnValue().Set(ret);
 }
 
@@ -657,7 +655,7 @@ int Http2Session::DoWrite(WriteWrap* req_wrap,
   Local<Object> req_wrap_obj = req_wrap->object();
   Local<Context> context = env->context();
 
-  std::shared_ptr<nghttp2_stream_t> stream_handle;
+  std::shared_ptr<Nghttp2Stream> stream_handle;
   Local<String> stream_string = FIXED_ONE_BYTE_STRING(env->isolate(), "stream");
   {
     Local<Value> val =
@@ -679,7 +677,7 @@ int Http2Session::DoWrite(WriteWrap* req_wrap,
     delete req;
   };
   req_wrap->Dispatched();
-  nghttp2_stream_write(req, stream_handle, bufs, count, AfterWrite);
+  stream_handle->Write(req, bufs, count, AfterWrite);
   return 0;
 }
 
@@ -710,7 +708,7 @@ void Http2Session::Send(uv_buf_t* buf,
   }
 }
 
-void Http2Session::OnTrailers(std::shared_ptr<nghttp2_stream_t> stream,
+void Http2Session::OnTrailers(std::shared_ptr<Nghttp2Stream> stream,
                               MaybeStackBuffer<nghttp2_nv>* trailers) {
   Local<Context> context = env()->context();
   Context::Scope context_scope(context);
@@ -720,7 +718,7 @@ void Http2Session::OnTrailers(std::shared_ptr<nghttp2_stream_t> stream,
   Local<String> ontrailers = FIXED_ONE_BYTE_STRING(isolate, "ontrailers");
   if (object()->Has(context, ontrailers).FromJust()) {
     Local<Value> argv[1] = {
-      Integer::New(isolate, stream->id)
+      Integer::New(isolate, stream->id())
     };
 
     v8::TryCatch try_catch(isolate);
@@ -833,7 +831,7 @@ static bool CheckHeaderAllowsMultiple(nghttp2_vec* name) {
   return true;
 }
 
-void Http2Session::OnHeaders(std::shared_ptr<nghttp2_stream_t> stream,
+void Http2Session::OnHeaders(std::shared_ptr<Nghttp2Stream> stream,
                              nghttp2_header_list* headers,
                              nghttp2_headers_category cat,
                              uint8_t flags) {
@@ -878,7 +876,7 @@ void Http2Session::OnHeaders(std::shared_ptr<nghttp2_stream_t> stream,
   Local<String> onheaders = FIXED_ONE_BYTE_STRING(isolate, "onheaders");
   if (object()->Has(context, onheaders).FromJust()) {
     Local<Value> argv[4] = {
-      Integer::New(isolate, stream->id),
+      Integer::New(isolate, stream->id()),
       Integer::New(isolate, cat),
       Integer::New(isolate, flags),
       holder
@@ -916,19 +914,19 @@ void Http2Session::OnStreamClose(int32_t id, uint32_t error_code) {
 
 
 void Http2Session::OnDataChunks(
-    std::shared_ptr<nghttp2_stream_t> stream,
+    std::shared_ptr<Nghttp2Stream> stream,
     std::shared_ptr<nghttp2_data_chunks_t> chunks) {
   Isolate* isolate = env()->isolate();
   Local<Context> context = env()->context();
   HandleScope scope(isolate);
-  std::shared_ptr<nghttp2_stream_t> stream_handle = stream;
+  std::shared_ptr<Nghttp2Stream> stream_handle = stream;
   std::shared_ptr<nghttp2_data_chunks_t> stream_chunks = chunks;
 
   Local<Object> handle_obj = Object::New(isolate);
   Local<String> id_string = FIXED_ONE_BYTE_STRING(isolate, "id");
   handle_obj->Set(context,
                   id_string,
-                  Integer::New(isolate, stream_handle->id)).FromJust();
+                  Integer::New(isolate, stream_handle->id())).FromJust();
   for (unsigned int n = 0; n < stream_chunks->nbufs; n++) {
     Local<Object> buf = Buffer::Copy(isolate,
                                      stream_chunks->buf[n].base,
