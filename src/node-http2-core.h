@@ -116,7 +116,7 @@ class Nghttp2Session {
       nghttp2_priority_spec* prispec,
       nghttp2_nv* nva,
       size_t len,
-      std::shared_ptr<Nghttp2Stream>* assigned,
+      std::shared_ptr<Nghttp2Stream>* assigned = nullptr,
       bool emptyPayload = true);
 
   inline void SubmitShutdownNotice();
@@ -245,12 +245,14 @@ struct Nghttp2Stream : public std::enable_shared_from_this<Nghttp2Stream> {
                             bool emptyPayload = false);
 
   inline int SubmitInfo(nghttp2_nv* nva, size_t len);
-  inline int SubmitPriority(nghttp2_priority_spec* prispec, bool silent = false);
+  inline int SubmitPriority(nghttp2_priority_spec* prispec,
+                            bool silent = false);
   inline int SubmitRstStream(const uint32_t code);
-  inline int SubmitPushPromise(nghttp2_nv* nva,
-                               size_t len,
-                               std::shared_ptr<Nghttp2Stream>* assigned,
-                               bool writable = true);
+  inline int SubmitPushPromise(
+      nghttp2_nv* nva,
+      size_t len,
+      std::shared_ptr<Nghttp2Stream>* assigned = nullptr,
+      bool writable = true);
 
   inline int Shutdown();
   inline void ReadStart();

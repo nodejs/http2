@@ -663,8 +663,9 @@ int32_t Nghttp2Stream::SubmitPushPromise(
                                             id_, nva, len,
                                             nullptr);
   if (ret > 0) {
-    *assigned = session_->StreamInit(ret);
-    if (emptyPayload) (*assigned)->Shutdown();
+    auto stream = session_->StreamInit(ret);
+    if (emptyPayload) stream->Shutdown();
+    if (assigned != nullptr) *assigned = stream;
   }
   return ret;
 }
@@ -708,8 +709,9 @@ inline int32_t Nghttp2Session::SubmitRequest(
                                        provider, nullptr);
   // Assign the Nghttp2Stream handle
   if (ret > 0) {
-    *assigned = StreamInit(ret);
-    if (emptyPayload) (*assigned)->Shutdown();
+    auto stream = StreamInit(ret);
+    if (emptyPayload) stream->Shutdown();
+    if (assigned != nullptr) *assigned = stream;
   }
   return ret;
 }

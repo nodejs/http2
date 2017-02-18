@@ -459,11 +459,10 @@ void Http2Session::SubmitRequest(const FunctionCallbackInfo<Value>& args) {
 
   Headers list(isolate, headers);
 
-  std::shared_ptr<Nghttp2Stream> assigned;
   args.GetReturnValue().Set(
       session->Nghttp2Session::SubmitRequest(&prispec,
                                              *list, list.length(),
-                                             &assigned, endStream));
+                                             nullptr, endStream));
 }
 
 void Http2Session::SubmitResponse(const FunctionCallbackInfo<Value>& args) {
@@ -632,7 +631,6 @@ void Http2Session::SubmitPushPromise(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[1]->IsArray());  // headers array
 
   std::shared_ptr<Nghttp2Stream> parent;
-  std::shared_ptr<Nghttp2Stream> assigned;
 
   if (!(parent = session->FindStream(args[0]->Int32Value()))) {
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
@@ -643,7 +641,7 @@ void Http2Session::SubmitPushPromise(const FunctionCallbackInfo<Value>& args) {
   Headers list(isolate, headers);
 
   int32_t ret = parent->SubmitPushPromise(*list, list.length(),
-                                          &assigned, endStream);
+                                          nullptr, endStream);
   args.GetReturnValue().Set(ret);
 }
 
