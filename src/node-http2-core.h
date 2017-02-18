@@ -84,8 +84,8 @@ struct nghttp2_pending_data_chunks_cb {
 };
 
 struct nghttp2_pending_session_send_cb {
-  size_t length;
-  uv_buf_t* buf;
+  size_t length = 0;
+  uv_buf_t* buf = nullptr;
 };
 
 struct nghttp2_pending_headers_cb {
@@ -232,6 +232,8 @@ class Nghttp2Session {
 };
 
 struct Nghttp2Stream : public std::enable_shared_from_this<Nghttp2Stream> {
+  ~Nghttp2Stream();
+
   inline int Write(
       nghttp2_stream_write_t* req,
       const uv_buf_t bufs[],
@@ -291,7 +293,9 @@ struct nghttp2_data_chunk_s {
 
 struct nghttp2_data_chunks_s {
   unsigned int nbufs = 0;
-  MaybeStackBuffer<uv_buf_t, MAX_BUFFER_COUNT> buf;
+  uv_buf_t buf[MAX_BUFFER_COUNT];
+
+  ~nghttp2_data_chunks_s();
 };
 
 }  // namespace http2

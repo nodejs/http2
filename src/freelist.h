@@ -7,7 +7,11 @@
 
 namespace node {
 
-template <typename T, size_t kMaximumLength, typename FreelistTraits>
+struct DefaultFreelistTraits;
+
+template <typename T,
+          size_t kMaximumLength,
+          typename FreelistTraits = DefaultFreelistTraits>
 class Freelist {
  public:
   typedef struct list_item {
@@ -65,16 +69,19 @@ class Freelist {
 struct DefaultFreelistTraits {
   template <typename T>
   static T* Alloc() {
-    return Calloc<T>(1);
+    return ::new (Malloc<T>(1)) T();
   }
 
   template <typename T>
   static void Free(T* item) {
+    item->~T();
     free(item);
   }
 
   template <typename T>
   static void Reset(T* item) {
+    item->~T();
+    ::new (item) T();
   }
 };
 
