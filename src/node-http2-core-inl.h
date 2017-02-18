@@ -815,7 +815,7 @@ Nghttp2Stream::~Nghttp2Stream() {
   }
 }
 
-nghttp2_data_chunks_s::~nghttp2_data_chunks_s() {
+nghttp2_data_chunks_t::~nghttp2_data_chunks_t() {
   for (unsigned int n = 0; n < nbufs; n++) {
     free(buf[n].base);
   }

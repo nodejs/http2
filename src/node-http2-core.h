@@ -18,30 +18,30 @@ namespace http2 {
 class Nghttp2Session;
 class Nghttp2Stream;
 
-typedef struct nghttp2_stream_write_s nghttp2_stream_write_t;
-typedef struct nghttp2_data_chunk_s nghttp2_data_chunk_t;
-typedef struct nghttp2_data_chunks_s nghttp2_data_chunks_t;
+struct nghttp2_stream_write_t;
+struct nghttp2_data_chunk_t;
+struct nghttp2_data_chunks_t;
 
 #define MAX_BUFFER_COUNT 10
 #define SEND_BUFFER_RECOMMENDED_SIZE 4096
 
-typedef enum {
+enum nghttp2_session_type {
   NGHTTP2_SESSION_SERVER,
   NGHTTP2_SESSION_CLIENT
-} nghttp2_session_type;
+};
 
-typedef enum {
+enum nghttp2_shutdown_flags {
   NGHTTP2_SHUTDOWN_FLAG_GRACEFUL,
   NGHTTP2_SHUTDOWN_FLAG_IMMEDIATE
-} nghttp2_shutdown_flags;
+};
 
-typedef enum {
+enum nghttp2_stream_flags {
   NGHTTP2_STREAM_FLAG_NONE = 0x0,
   // Writable side has ended
   NGHTTP2_STREAM_FLAG_SHUT = 0x1,
   // Readable side has ended
   NGHTTP2_STREAM_FLAG_ENDED = 0x2
-} nghttp2_stream_flags;
+};
 
 
 // Callbacks
@@ -281,23 +281,23 @@ private:
   friend class Nghttp2Session;
 };
 
-struct nghttp2_stream_write_s {
+struct nghttp2_stream_write_t {
   void* data;
   int status;
   std::shared_ptr<Nghttp2Stream> handle;
   nghttp2_stream_write_queue* item;
 };
 
-struct nghttp2_data_chunk_s {
+struct nghttp2_data_chunk_t {
   uv_buf_t buf;
   nghttp2_data_chunk_t* next = nullptr;
 };
 
-struct nghttp2_data_chunks_s {
+struct nghttp2_data_chunks_t {
   unsigned int nbufs = 0;
   uv_buf_t buf[MAX_BUFFER_COUNT];
 
-  ~nghttp2_data_chunks_s();
+  ~nghttp2_data_chunks_t();
 };
 
 }  // namespace http2
