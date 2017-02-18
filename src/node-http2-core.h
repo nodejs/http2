@@ -162,7 +162,6 @@ class Nghttp2Session {
   virtual bool HasGetPaddingCallback() { return false; }
 
  private:
-  static void OnSessionPrep(uv_prepare_t* t);
   inline void SendAndMakeReady();
   inline void DrainSend();
   inline void QueuePendingCallback(nghttp2_pending_cb_list* item);
@@ -173,7 +172,6 @@ class Nghttp2Session {
   inline void DrainSettings(nghttp2_pending_settings_cb*);
   inline void DrainCallbacks();
 
-  static void DeleteDataChunks(nghttp2_data_chunks_t*);
   static void StreamDeleter(Nghttp2Stream* handle);
 
   /* callbacks for nghttp2 */
@@ -219,8 +217,8 @@ class Nghttp2Session {
                                  void* user_data);
 
   struct Callbacks {
-    explicit Callbacks(bool kHasGetPaddingCallback);
-    ~Callbacks();
+    inline explicit Callbacks(bool kHasGetPaddingCallback);
+    inline ~Callbacks();
 
     nghttp2_session_callbacks* callbacks;
   };
@@ -242,7 +240,7 @@ class Nghttp2Session {
 };
 
 struct Nghttp2Stream : public std::enable_shared_from_this<Nghttp2Stream> {
-  ~Nghttp2Stream();
+  inline ~Nghttp2Stream();
 
   inline int Write(
       nghttp2_stream_write_t* req,
@@ -308,7 +306,7 @@ struct nghttp2_data_chunks_t {
   unsigned int nbufs = 0;
   uv_buf_t buf[MAX_BUFFER_COUNT];
 
-  ~nghttp2_data_chunks_t();
+  inline ~nghttp2_data_chunks_t();
 };
 
 }  // namespace http2
