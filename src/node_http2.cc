@@ -149,8 +149,7 @@ void Http2Session::GetStreamState(const FunctionCallbackInfo<Value>& args) {
   nghttp2_session* s = session->session;
   std::shared_ptr<nghttp2_stream_t> stream_handle;
 
-  if (!session->FindStream(args[0]->Int32Value(),
-                           &stream_handle)) {
+  if (!(stream_handle = session->FindStream(args[0]->Int32Value()))) {
     // invalid stream
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
@@ -380,7 +379,7 @@ void Http2Session::SubmitPriority(const FunctionCallbackInfo<Value>& args) {
   CHECK_GE(weight, 0);
 
   std::shared_ptr<nghttp2_stream_t> stream_handle;
-  if (!session->FindStream(stream_id, &stream_handle)) {
+  if (!(stream_handle = session->FindStream(stream_id))) {
     // invalid stream
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
@@ -429,7 +428,7 @@ void Http2Session::SubmitRstStream(const FunctionCallbackInfo<Value>& args) {
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
 
   std::shared_ptr<nghttp2_stream_t> stream_handle;
-  if (!session->FindStream(args[0]->Int32Value(), &stream_handle)) {
+  if (!(stream_handle = session->FindStream(args[0]->Int32Value()))) {
     // invalid stream
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
@@ -482,7 +481,7 @@ void Http2Session::SubmitResponse(const FunctionCallbackInfo<Value>& args) {
   Local<Array> headers = args[1].As<Array>();
   bool endStream = args[2]->BooleanValue();
 
-  if (!session->FindStream(args[0]->Int32Value(), &stream_handle)) {
+  if (!(stream_handle = session->FindStream(args[0]->Int32Value()))) {
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
 
@@ -503,7 +502,7 @@ void Http2Session::SendHeaders(const FunctionCallbackInfo<Value>& args) {
   Environment* env = session->env();
   Isolate* isolate = env->isolate();
 
-  if (!session->FindStream(args[0]->Int32Value(), &stream_handle)) {
+  if (!(stream_handle = session->FindStream(args[0]->Int32Value()))) {
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
 
@@ -519,7 +518,7 @@ void Http2Session::ShutdownStream(const FunctionCallbackInfo<Value>& args) {
   Http2Session* session;
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
   std::shared_ptr<nghttp2_stream_t> stream_handle;
-  if (!session->FindStream(args[0]->Int32Value(), &stream_handle)) {
+  if (!(stream_handle = session->FindStream(args[0]->Int32Value()))) {
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
   args.GetReturnValue().Set(nghttp2_stream_shutdown(stream_handle));
@@ -531,7 +530,7 @@ void Http2Session::StreamReadStart(const FunctionCallbackInfo<Value>& args) {
   Http2Session* session;
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
   std::shared_ptr<nghttp2_stream_t> stream_handle;
-  if (!session->FindStream(args[0]->Int32Value(), &stream_handle)) {
+  if (!(stream_handle = session->FindStream(args[0]->Int32Value()))) {
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
   nghttp2_stream_read_start(stream_handle);
@@ -544,7 +543,7 @@ void Http2Session::StreamReadStop(const FunctionCallbackInfo<Value>& args) {
   Http2Session* session;
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
   std::shared_ptr<nghttp2_stream_t> stream_handle;
-  if (!session->FindStream(args[0]->Int32Value(), &stream_handle)) {
+  if (!(stream_handle = session->FindStream(args[0]->Int32Value()))) {
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
   nghttp2_stream_read_stop(stream_handle);
@@ -637,7 +636,7 @@ void Http2Session::SubmitPushPromise(const FunctionCallbackInfo<Value>& args) {
   std::shared_ptr<nghttp2_stream_t> parent;
   std::shared_ptr<nghttp2_stream_t> assigned;
 
-  if (!session->FindStream(args[0]->Int32Value(), &parent)) {
+  if (!(parent = session->FindStream(args[0]->Int32Value()))) {
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
 
@@ -664,7 +663,7 @@ int Http2Session::DoWrite(WriteWrap* req_wrap,
     Local<Value> val =
         req_wrap_obj->Get(context, stream_string).ToLocalChecked();
     CHECK(val->IsNumber());
-    if (!FindStream(val->Int32Value(), &stream_handle)) {
+    if (!(stream_handle = FindStream(val->Int32Value()))) {
       // invalid stream
       req_wrap->Dispatched();
       req_wrap->Done(0);

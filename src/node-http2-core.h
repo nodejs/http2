@@ -116,8 +116,7 @@ struct nghttp2_pending_cb_list {
 class Nghttp2Session {
  public:
   inline bool HasStream(int32_t id);
-  inline bool FindStream(int32_t id,
-                          std::shared_ptr<nghttp2_stream_t>* stream_handle);
+  inline std::shared_ptr<nghttp2_stream_t> FindStream(int32_t id);
 
   inline int32_t SubmitRequest(
       nghttp2_priority_spec* prispec,
