@@ -17,12 +17,12 @@ namespace http2 {
 
 #define LINKED_LIST_ADD(list, item)                                           \
   do {                                                                        \
-    if (list ## _tail == nullptr) {                                           \
-      list ## _head = item;                                                   \
-      list ## _tail = item;                                                   \
+    if (list ## _tail_ == nullptr) {                                          \
+      list ## _head_ = item;                                                  \
+      list ## _tail_ = item;                                                  \
     } else {                                                                  \
-      list ## _tail->next = item;                                             \
-      list ## _tail = item;                                                   \
+      list ## _tail_->next = item;                                            \
+      list ## _tail_ = item;                                                  \
     }                                                                         \
   } while (0);
 
@@ -69,12 +69,12 @@ struct StreamHandleFreelistTraits : public DefaultFreelistTraits {
     handle->session = nullptr;
     handle->id = 0;
     handle->flags = NGHTTP2_STREAM_FLAG_NONE;
-    handle->queue_head = nullptr;
-    handle->queue_tail = nullptr;
+    handle->queue_head_ = nullptr;
+    handle->queue_tail_ = nullptr;
     handle->queue_head_index = 0;
     handle->queue_head_offset = 0;
-    handle->current_headers_head = nullptr;
-    handle->current_headers_tail = nullptr;
+    handle->current_headers_head_ = nullptr;
+    handle->current_headers_tail_ = nullptr;
     handle->current_headers_category = NGHTTP2_HCAT_HEADERS;
     handle->current_data_chunks_cb = nullptr;
     handle->reading = -1;
@@ -179,14 +179,14 @@ inline void Nghttp2Session::SubmitShutdownNotice() {
 }
 
 inline bool Nghttp2Session::HasStream(int32_t id) {
-  auto s = streams.find(id);
-  return s != streams.end();
+  auto s = streams_.find(id);
+  return s != streams_.end();
 }
 
 inline std::shared_ptr<nghttp2_stream_t> Nghttp2Session::FindStream(
     int32_t id) {
-  auto s = streams.find(id);
-  if (s != streams.end()) {
+  auto s = streams_.find(id);
+  if (s != streams_.end()) {
     return s->second;
   } else {
     return std::shared_ptr<nghttp2_stream_t>(nullptr);
@@ -212,8 +212,8 @@ ssize_t Nghttp2Session::OnStreamRead(nghttp2_session* session,
   size_t remaining = length;
   size_t offset = 0;
 
-  while (stream_handle->queue_head != nullptr) {
-    nghttp2_stream_write_queue* head = stream_handle->queue_head;
+  while (stream_handle->queue_head_ != nullptr) {
+    nghttp2_stream_write_queue* head = stream_handle->queue_head_;
     for (unsigned int n = stream_handle->queue_head_index;
          n < head->nbufs; n++) {
       if (head->bufs[n].len > 0) {
@@ -236,15 +236,15 @@ ssize_t Nghttp2Session::OnStreamRead(nghttp2_session* session,
     }
     stream_handle->queue_head_offset = 0;
     stream_handle->queue_head_index = 0;
-    stream_handle->queue_head = head->next;
+    stream_handle->queue_head_ = head->next;
     head->cb(head->req, 0);
     delete head;
   }
 
  end:
-  int writable = stream_handle->queue_head != nullptr ||
+  int writable = stream_handle->queue_head_ != nullptr ||
                  nghttp2_stream_writable(stream_handle);
-  if (offset == 0 && writable && stream_handle->queue_head == nullptr) {
+  if (offset == 0 && writable && stream_handle->queue_head_ == nullptr) {
     return NGHTTP2_ERR_DEFERRED;
   }
   if (!writable) {
@@ -287,7 +287,7 @@ void Nghttp2Session::DrainHeaders(nghttp2_pending_headers_cb* cb) {
 void Nghttp2Session::DrainStreamClose(nghttp2_pending_stream_close_cb* cb) {
   assert(cb != nullptr);
   OnStreamClose(cb->handle->id, cb->error_code);
-  streams.erase(cb->handle->id);
+  streams_.erase(cb->handle->id);
   pending_stream_close_free_list.push(cb);
 }
 
@@ -340,8 +340,8 @@ void Nghttp2Session::DrainSettings(nghttp2_pending_settings_cb* cb) {
 }
 
 void Nghttp2Session::DrainCallbacks() {
-  while (ready_callbacks_head != nullptr) {
-    nghttp2_pending_cb_list* item = ready_callbacks_head;
+  while (ready_callbacks_head_ != nullptr) {
+    nghttp2_pending_cb_list* item = ready_callbacks_head_;
     switch (item->type) {
       case NGHTTP2_CB_SESSION_SEND:
         DrainSend(static_cast<nghttp2_pending_session_send_cb*>(item->cb));
@@ -361,12 +361,12 @@ void Nghttp2Session::DrainCallbacks() {
       case NGHTTP2_CB_NONE:
         break;
     }
-    ready_callbacks_head = item->next;
+    ready_callbacks_head_ = item->next;
     cb_free_list.push(item);
   }
-  ready_callbacks_tail = nullptr;
-  assert(ready_callbacks_tail == nullptr);
-  assert(ready_callbacks_head == nullptr);
+  ready_callbacks_tail_ = nullptr;
+  assert(ready_callbacks_tail_ == nullptr);
+  assert(ready_callbacks_head_ == nullptr);
 }
 
 void Nghttp2Session::DrainSend() {
@@ -423,13 +423,13 @@ inline void Nghttp2Session::SendAndMakeReady() {
   }
 
   LINKED_LIST_ADD(ready_callbacks,
-                  pending_callbacks_head);
-  pending_callbacks_head = nullptr;
-  pending_callbacks_tail = nullptr;
+                  pending_callbacks_head_);
+  pending_callbacks_head_ = nullptr;
+  pending_callbacks_tail_ = nullptr;
 }
 
 void Nghttp2Session::OnSessionPrep(uv_prepare_t* t) {
-  Nghttp2Session* handle = ContainerOf(&Nghttp2Session::prep, t);
+  Nghttp2Session* handle = ContainerOf(&Nghttp2Session::prep_, t);
 
   handle->SendAndMakeReady();
   handle->DrainCallbacks();
@@ -506,10 +506,10 @@ int Nghttp2Session::OnFrameReceive(nghttp2_session* session,
       cb = pending_headers_free_list.pop();
       cb->handle = stream_handle;
       cb->category = stream_handle->current_headers_category;
-      cb->headers = stream_handle->current_headers_head;
+      cb->headers = stream_handle->current_headers_head_;
       cb->flags = frame->hd.flags;
-      stream_handle->current_headers_head = nullptr;
-      stream_handle->current_headers_tail = nullptr;
+      stream_handle->current_headers_head_ = nullptr;
+      stream_handle->current_headers_tail_ = nullptr;
       pending_cb = cb_free_list.pop();
       pending_cb->type = NGHTTP2_CB_HEADERS;
       pending_cb->cb = cb;
@@ -614,8 +614,8 @@ int Nghttp2Session::Init(uv_loop_t* loop,
                          const nghttp2_session_type type,
                          nghttp2_option* options,
                          nghttp2_mem* mem) {
-  loop = loop;
-  session_type = type;
+  loop_ = loop;
+  session_type_ = type;
   int ret = 0;
 
   nghttp2_session_callbacks* callbacks;
@@ -667,8 +667,8 @@ int Nghttp2Session::Init(uv_loop_t* loop,
   }
   nghttp2_session_callbacks_del(callbacks);
 
-  uv_prepare_init(loop, &prep);
-  uv_prepare_start(&prep, OnSessionPrep);
+  uv_prepare_init(loop_, &prep_);
+  uv_prepare_start(&prep_, OnSessionPrep);
   return ret;
 }
 
@@ -687,7 +687,7 @@ std::shared_ptr<nghttp2_stream_t> Nghttp2Session::StreamInit(
   stream_handle->session = this;
   stream_handle->id = id;
   stream_handle->current_headers_category = category;
-  streams[id] = stream_handle;
+  streams_[id] = stream_handle;
   OnStreamInit(stream_handle);
   return stream_handle;
 }
@@ -701,25 +701,25 @@ bool Nghttp2Session::IsAliveSession() {
 
 int Nghttp2Session::Free() {
   assert(session != nullptr);
-  assert(pending_callbacks_head == nullptr);
-  assert(pending_callbacks_tail == nullptr);
-  assert(ready_callbacks_head == nullptr);
-  assert(ready_callbacks_tail == nullptr);
+  assert(pending_callbacks_head_ == nullptr);
+  assert(pending_callbacks_tail_ == nullptr);
+  assert(ready_callbacks_head_ == nullptr);
+  assert(ready_callbacks_tail_ == nullptr);
 
-  uv_prepare_stop(&prep);
+  uv_prepare_stop(&prep_);
   auto PrepClose = [](uv_handle_t* handle) {
     Nghttp2Session* session =
-        ContainerOf(&Nghttp2Session::prep,
+        ContainerOf(&Nghttp2Session::prep_,
                     reinterpret_cast<uv_prepare_t*>(handle));
 
     session->OnFreeSession();
   };
-  uv_close(reinterpret_cast<uv_handle_t*>(&prep), PrepClose);
+  uv_close(reinterpret_cast<uv_handle_t*>(&prep_), PrepClose);
 
   nghttp2_session_terminate_session(session, NGHTTP2_NO_ERROR);
   nghttp2_session_del(session);
   session = nullptr;
-  loop = nullptr;
+  loop_ = nullptr;
   return 1;
 }
 
@@ -899,12 +899,12 @@ inline int nghttp2_stream_write(nghttp2_stream_write_t* req,
   req->item = item;
   memcpy(*(item->bufs), bufs, nbufs * sizeof(*bufs));
 
-  if (h->queue_head == nullptr) {
-    h->queue_head = item;
-    h->queue_tail = item;
+  if (h->queue_head_ == nullptr) {
+    h->queue_head_ = item;
+    h->queue_tail_ = item;
   } else {
-    h->queue_tail->next = item;
-    h->queue_tail = item;
+    h->queue_tail_->next = item;
+    h->queue_tail_ = item;
   }
   nghttp2_session_resume_data(session->session, h->id);
   return 0;

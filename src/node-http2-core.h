@@ -226,26 +226,26 @@ class Nghttp2Session {
                                  const nghttp2_frame* frame,
                                  size_t maxPayloadLen,
                                  void* user_data);
-  uv_loop_t* loop;
-  uv_prepare_t prep;
-  nghttp2_session_type session_type;
-  nghttp2_pending_cb_list* pending_callbacks_head = nullptr;
-  nghttp2_pending_cb_list* pending_callbacks_tail = nullptr;
-  nghttp2_pending_cb_list* ready_callbacks_head = nullptr;
-  nghttp2_pending_cb_list* ready_callbacks_tail = nullptr;
-  std::unordered_map<int32_t, std::shared_ptr<nghttp2_stream_t>> streams;
+  uv_loop_t* loop_;
+  uv_prepare_t prep_;
+  nghttp2_session_type session_type_;
+  nghttp2_pending_cb_list* pending_callbacks_head_ = nullptr;
+  nghttp2_pending_cb_list* pending_callbacks_tail_ = nullptr;
+  nghttp2_pending_cb_list* ready_callbacks_head_ = nullptr;
+  nghttp2_pending_cb_list* ready_callbacks_tail_ = nullptr;
+  std::unordered_map<int32_t, std::shared_ptr<nghttp2_stream_t>> streams_;
 };
 
 struct nghttp2_stream_s {
   Nghttp2Session* session = nullptr;
   int32_t id = 0;
   int flags = 0;
-  nghttp2_stream_write_queue* queue_head = nullptr;
-  nghttp2_stream_write_queue* queue_tail = nullptr;
+  nghttp2_stream_write_queue* queue_head_ = nullptr;
+  nghttp2_stream_write_queue* queue_tail_ = nullptr;
   unsigned int queue_head_index = 0;
   size_t queue_head_offset = 0;
-  nghttp2_header_list* current_headers_head = nullptr;
-  nghttp2_header_list* current_headers_tail = nullptr;
+  nghttp2_header_list* current_headers_head_ = nullptr;
+  nghttp2_header_list* current_headers_tail_ = nullptr;
   nghttp2_headers_category current_headers_category = NGHTTP2_HCAT_HEADERS;
   nghttp2_pending_data_chunks_cb* current_data_chunks_cb = nullptr;
   int reading = -1;
