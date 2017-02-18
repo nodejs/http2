@@ -146,7 +146,7 @@ void Http2Session::GetStreamState(const FunctionCallbackInfo<Value>& args) {
   Http2Session* session;
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
   int32_t id = args[0]->Int32Value();
-  nghttp2_session* s = session->session;
+  nghttp2_session* s = session->session();
   std::shared_ptr<Nghttp2Stream> stream_handle;
 
   if (!(stream_handle = session->FindStream(args[0]->Int32Value()))) {
@@ -195,7 +195,7 @@ void Http2Session::GetSessionState(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
   Isolate* isolate = env->isolate();
   Local<Context> context = env->context();
-  nghttp2_session* s = session->session;
+  nghttp2_session* s = session->session();
 
   int32_t elws = nghttp2_session_get_effective_local_window_size(s);
   int32_t erdl = nghttp2_session_get_effective_recv_data_length(s);
@@ -230,7 +230,7 @@ void Http2Session::GetSessionState(const FunctionCallbackInfo<Value>& args) {
 void Http2Session::SetNextStreamID(const FunctionCallbackInfo<Value>& args) {
   Http2Session* session;
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
-  nghttp2_session* s = session->session;
+  nghttp2_session* s = session->session();
   nghttp2_session_set_next_stream_id(s, args[0]->Int32Value());
 }
 
@@ -256,7 +256,7 @@ void Http2Session::GetSettings(
   Environment* env = session->env();
   CHECK(args[0]->IsObject());
   Local<Object> obj = args[0].As<Object>();
-  FillInSettings(env, session->session, fn, obj);
+  FillInSettings(env, session->session(), fn, obj);
   args.GetReturnValue().Set(obj);
 }
 
@@ -552,11 +552,11 @@ void Http2Session::StreamReadStop(const FunctionCallbackInfo<Value>& args) {
 static void DoSessionShutdown(SessionShutdownWrap* req) {
   int status;
   if (req->immediate()) {
-    status = nghttp2_session_terminate_session2(req->handle()->session,
+    status = nghttp2_session_terminate_session2(req->handle()->session(),
                                                 req->lastStreamID(),
                                                 req->errorCode());
   } else {
-    status = nghttp2_submit_goaway(req->handle()->session,
+    status = nghttp2_submit_goaway(req->handle()->session(),
                                    NGHTTP2_FLAG_NONE,
                                    req->lastStreamID(),
                                    req->errorCode(),

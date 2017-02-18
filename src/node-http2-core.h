@@ -136,6 +136,8 @@ class Nghttp2Session {
         int32_t id,
         nghttp2_headers_category category = NGHTTP2_HCAT_HEADERS);
 
+  inline nghttp2_session* session() { return session_; }
+
  protected:
   virtual void OnStreamInit(std::shared_ptr<Nghttp2Stream> stream) {}
   virtual void OnStreamFree(Nghttp2Stream* stream) {}
@@ -200,9 +202,6 @@ class Nghttp2Session {
                                  const uint8_t *data,
                                  size_t len,
                                  void* user_data);
- public:
-  // TODO(addaleax): These should be private
-  nghttp2_session* session;
 
   inline void QueuePendingDataChunks(Nghttp2Stream* stream,
                                      uint8_t flags = NGHTTP2_FLAG_NONE);
@@ -214,11 +213,12 @@ class Nghttp2Session {
                               uint32_t* flags,
                               nghttp2_data_source* source,
                               void* user_data);
- private:
   static ssize_t OnSelectPadding(nghttp2_session* session,
                                  const nghttp2_frame* frame,
                                  size_t maxPayloadLen,
                                  void* user_data);
+
+  nghttp2_session* session_;
   uv_loop_t* loop_;
   uv_prepare_t prep_;
   nghttp2_session_type session_type_;
@@ -251,7 +251,7 @@ struct Nghttp2Stream : public std::enable_shared_from_this<Nghttp2Stream> {
                                size_t len,
                                std::shared_ptr<Nghttp2Stream>* assigned,
                                bool writable = true);
-   
+
   inline int Shutdown();
   inline void ReadStart();
   inline void ReadStop();

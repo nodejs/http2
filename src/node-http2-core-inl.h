@@ -55,7 +55,7 @@ static Freelist<nghttp2_pending_session_send_cb, FREELIST_MAX>
     pending_session_send_free_list;
 
 inline void Nghttp2Session::SubmitShutdownNotice() {
-  nghttp2_submit_shutdown_notice(session);
+  nghttp2_submit_shutdown_notice(session_);
 }
 
 inline bool Nghttp2Session::HasStream(int32_t id) {
@@ -204,7 +204,7 @@ void Nghttp2Session::DrainDataChunks(nghttp2_pending_data_chunks_cb* cb) {
       OnDataChunks(cb->handle, chunks);
       // Notify the nghttp2_session that a given chunk of data has been
       // consumed and we are ready to receive more data for this stream
-      nghttp2_session_consume(session, cb->handle->id(), amount);
+      nghttp2_session_consume(session_, cb->handle->id(), amount);
       n = 0;
       amount = 0;
     }
@@ -258,7 +258,7 @@ void Nghttp2Session::DrainSend() {
   uv_buf_t* current = AllocateSend(SEND_BUFFER_RECOMMENDED_SIZE);
   assert(current);
   size_t remaining = current->len;
-  while ((amount = nghttp2_session_mem_send(session, &data)) > 0) {
+  while ((amount = nghttp2_session_mem_send(session_, &data)) > 0) {
     while (amount > 0) {
       if (amount > remaining) {
         // The amount copied does not fit within the remaining available
@@ -297,7 +297,7 @@ void Nghttp2Session::DrainSend() {
 }
 
 inline void Nghttp2Session::SendAndMakeReady() {
-  while (nghttp2_session_want_write(session)) {
+  while (nghttp2_session_want_write(session_)) {
     DrainSend();
   }
 
@@ -526,14 +526,14 @@ int Nghttp2Session::Init(uv_loop_t* loop,
 
   switch (type) {
     case NGHTTP2_SESSION_SERVER:
-      ret = nghttp2_session_server_new3(&session,
+      ret = nghttp2_session_server_new3(&session_,
                                         callbacks,
                                         this,
                                         opts,
                                         mem);
       break;
     case NGHTTP2_SESSION_CLIENT:
-      ret = nghttp2_session_client_new3(&session,
+      ret = nghttp2_session_client_new3(&session_,
                                         callbacks,
                                         this,
                                         opts,
@@ -573,12 +573,12 @@ std::shared_ptr<Nghttp2Stream> Nghttp2Session::StreamInit(
 // Returns true if the session is alive, false if it is not
 // A session that is not alive is ok to be freed
 bool Nghttp2Session::IsAliveSession() {
-  return nghttp2_session_want_read(session) ||
-         nghttp2_session_want_write(session);
+  return nghttp2_session_want_read(session_) ||
+         nghttp2_session_want_write(session_);
 }
 
 int Nghttp2Session::Free() {
-  assert(session != nullptr);
+  assert(session_ != nullptr);
   assert(pending_callbacks_head_ == nullptr);
   assert(pending_callbacks_tail_ == nullptr);
   assert(ready_callbacks_head_ == nullptr);
@@ -594,9 +594,9 @@ int Nghttp2Session::Free() {
   };
   uv_close(reinterpret_cast<uv_handle_t*>(&prep_), PrepClose);
 
-  nghttp2_session_terminate_session(session, NGHTTP2_NO_ERROR);
-  nghttp2_session_del(session);
-  session = nullptr;
+  nghttp2_session_terminate_session(session_, NGHTTP2_NO_ERROR);
+  nghttp2_session_del(session_);
+  session_ = nullptr;
   loop_ = nullptr;
   return 1;
 }
@@ -606,7 +606,7 @@ ssize_t Nghttp2Session::Write(const uv_buf_t* bufs, unsigned int nbufs) {
   size_t total = 0;
   for (unsigned int n = 0; n < nbufs; n++) {
     ssize_t ret =
-      nghttp2_session_mem_recv(session,
+      nghttp2_session_mem_recv(session_,
                                reinterpret_cast<uint8_t*>(bufs[n].base),
                                bufs[n].len);
     if (ret < 0) {
@@ -621,14 +621,14 @@ ssize_t Nghttp2Session::Write(const uv_buf_t* bufs, unsigned int nbufs) {
 // Submits new settings to the underlying nghttp2_session.
 int Nghttp2Session::SubmitSettings(const nghttp2_settings_entry iv[],
                                    size_t niv) {
-  return nghttp2_submit_settings(session,
+  return nghttp2_submit_settings(session_,
                                  NGHTTP2_FLAG_NONE, iv, niv);
 }
 
 // Submit additional headers for a stream. Typically used to
 // submit informational (1xx) headers
 int Nghttp2Stream::SubmitInfo(nghttp2_nv* nva, size_t len) {
-  return nghttp2_submit_headers(session_->session,
+  return nghttp2_submit_headers(session_->session(),
                                 NGHTTP2_FLAG_NONE,
                                 id_, nullptr,
                                 nva, len, nullptr);
@@ -637,16 +637,16 @@ int Nghttp2Stream::SubmitInfo(nghttp2_nv* nva, size_t len) {
 int Nghttp2Stream::SubmitPriority(nghttp2_priority_spec* prispec,
                                   bool silent) {
   return silent ?
-      nghttp2_session_change_stream_priority(session_->session,
+      nghttp2_session_change_stream_priority(session_->session(),
                                              id_, prispec) :
-      nghttp2_submit_priority(session_->session,
+      nghttp2_submit_priority(session_->session(),
                               NGHTTP2_FLAG_NONE,
                               id_, prispec);
 }
 
 // Submit an RST_STREAM frame
 int Nghttp2Stream::SubmitRstStream(const uint32_t code) {
-  return nghttp2_submit_rst_stream(session_->session,
+  return nghttp2_submit_rst_stream(session_->session(),
                                    NGHTTP2_FLAG_NONE,
                                    id_,
                                    code);
@@ -658,7 +658,7 @@ int32_t Nghttp2Stream::SubmitPushPromise(
     size_t len,
     std::shared_ptr<Nghttp2Stream>* assigned,
     bool emptyPayload) {
-  int32_t ret = nghttp2_submit_push_promise(session_->session,
+  int32_t ret = nghttp2_submit_push_promise(session_->session(),
                                             NGHTTP2_FLAG_NONE,
                                             id_, nva, len,
                                             nullptr);
@@ -683,7 +683,7 @@ int Nghttp2Stream::SubmitResponse(nghttp2_nv* nva,
   if (!emptyPayload && IsWritable())
     provider = &prov;
 
-  return nghttp2_submit_response(session_->session, id_,
+  return nghttp2_submit_response(session_->session(), id_,
                                  nva, len, provider);
 }
 
@@ -703,7 +703,7 @@ inline int32_t Nghttp2Session::SubmitRequest(
   prov.read_callback = OnStreamRead;
   if (!emptyPayload)
     provider = &prov;
-  int32_t ret = nghttp2_submit_request(session,
+  int32_t ret = nghttp2_submit_request(session_,
                                        prispec, nva, len,
                                        provider, nullptr);
   // Assign the Nghttp2Stream handle
@@ -717,7 +717,7 @@ inline int32_t Nghttp2Session::SubmitRequest(
 // Mark the writable side of the nghttp2_stream as being shutdown.
 int Nghttp2Stream::Shutdown() {
   flags_ |= NGHTTP2_STREAM_FLAG_SHUT;
-  nghttp2_session_resume_data(session_->session, id_);
+  nghttp2_session_resume_data(session_->session(), id_);
   return 0;
 }
 
@@ -751,7 +751,7 @@ int Nghttp2Stream::Write(nghttp2_stream_write_t* req,
     queue_tail_->next = item;
     queue_tail_ = item;
   }
-  nghttp2_session_resume_data(session_->session, id_);
+  nghttp2_session_resume_data(session_->session(), id_);
   return 0;
 }
 
@@ -762,7 +762,7 @@ void Nghttp2Stream::ReadStart() {
     // stop had been previously called, meaning that the flow control window
     // has been explicitly set to zero. Reset the flow control window now to
     // restart the flow of data.
-    nghttp2_session_set_local_window_size(session_->session,
+    nghttp2_session_set_local_window_size(session_->session(),
                                           NGHTTP2_FLAG_NONE,
                                           id_,
                                           prev_local_window_size_);
@@ -776,10 +776,10 @@ void Nghttp2Stream::ReadStop() {
   // When not reading, explicitly set the local window size to 0 so that
   // the peer does not keep sending data that has to be buffered
   int32_t ret =
-    nghttp2_session_get_stream_local_window_size(session_->session, id_);
+    nghttp2_session_get_stream_local_window_size(session_->session(), id_);
   if (ret >= 0)
     prev_local_window_size_ = ret;
-  nghttp2_session_set_local_window_size(session_->session,
+  nghttp2_session_set_local_window_size(session_->session(),
                                         NGHTTP2_FLAG_NONE,
                                         id_, 0);
 }
