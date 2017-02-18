@@ -880,11 +880,10 @@ inline int nghttp2_stream_readable(std::shared_ptr<nghttp2_stream_t> handle) {
 // Note that this does *not* mean that the data has been flushed
 // to the socket yet.
 inline int nghttp2_stream_write(nghttp2_stream_write_t* req,
-                                std::shared_ptr<nghttp2_stream_t> handle,
+                                std::shared_ptr<nghttp2_stream_t> h,
                                 const uv_buf_t bufs[],
                                 unsigned int nbufs,
                                 nghttp2_stream_write_cb cb) {
-  std::shared_ptr<nghttp2_stream_t> h = handle;
   Nghttp2Session* session = h->session;
   if (!nghttp2_stream_writable(h)) {
     if (cb != nullptr)
