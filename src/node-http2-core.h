@@ -261,7 +261,7 @@ struct Nghttp2Stream : public std::enable_shared_from_this<Nghttp2Stream> {
   inline bool IsReading() const;
 
   inline int32_t id() const;
-/*private:*/ /* TODO(addaleax): these should be private */
+private:
   Nghttp2Session* session_ = nullptr;
   int32_t id_ = 0;
   int flags_ = 0;
