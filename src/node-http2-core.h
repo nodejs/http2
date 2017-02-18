@@ -218,6 +218,16 @@ class Nghttp2Session {
                                  size_t maxPayloadLen,
                                  void* user_data);
 
+  struct Callbacks {
+    explicit Callbacks(bool kHasGetPaddingCallback);
+    ~Callbacks();
+
+    nghttp2_session_callbacks* callbacks;
+  };
+
+  /* Use callback_struct_saved[kHasGetPaddingCallback ? 1 : 0] */
+  static Callbacks callback_struct_saved[2];
+
   nghttp2_session* session_;
   uv_loop_t* loop_;
   uv_prepare_t prep_;
@@ -263,7 +273,8 @@ struct Nghttp2Stream : public std::enable_shared_from_this<Nghttp2Stream> {
   inline bool IsReading() const;
 
   inline int32_t id() const;
-private:
+
+ private:
   Nghttp2Session* session_ = nullptr;
   int32_t id_ = 0;
   int flags_ = 0;

@@ -496,25 +496,8 @@ int Nghttp2Session::Init(uv_loop_t* loop,
   session_type_ = type;
   int ret = 0;
 
-  nghttp2_session_callbacks* callbacks;
-  nghttp2_session_callbacks_new(&callbacks);
-  nghttp2_session_callbacks_set_on_begin_headers_callback(
-    callbacks, OnBeginHeadersCallback);
-  nghttp2_session_callbacks_set_on_header_callback2(
-    callbacks, OnHeaderCallback);
-  nghttp2_session_callbacks_set_on_frame_recv_callback(
-    callbacks, OnFrameReceive);
-  nghttp2_session_callbacks_set_on_stream_close_callback(
-    callbacks, OnStreamClose);
-  nghttp2_session_callbacks_set_on_begin_frame_callback(
-    callbacks, OnBeginFrameReceived);
-  nghttp2_session_callbacks_set_on_data_chunk_recv_callback(
-    callbacks, OnDataChunkReceived);
-
-  if (HasGetPaddingCallback()) {
-    nghttp2_session_callbacks_set_select_padding_callback(
-      callbacks, OnSelectPadding);
-  }
+  nghttp2_session_callbacks* callbacks
+      = callback_struct_saved[HasGetPaddingCallback() ? 1 : 0].callbacks;
 
   nghttp2_option* opts;
   if (options != nullptr) {
@@ -543,7 +526,6 @@ int Nghttp2Session::Init(uv_loop_t* loop,
   if (opts != options) {
     nghttp2_option_del(opts);
   }
-  nghttp2_session_callbacks_del(callbacks);
 
   uv_prepare_init(loop_, &prep_);
   uv_prepare_start(&prep_, OnSessionPrep);
@@ -820,6 +802,36 @@ nghttp2_data_chunks_t::~nghttp2_data_chunks_t() {
     free(buf[n].base);
   }
 }
+
+Nghttp2Session::Callbacks::Callbacks(bool kHasGetPaddingCallback) {
+  nghttp2_session_callbacks_new(&callbacks);
+  nghttp2_session_callbacks_set_on_begin_headers_callback(
+    callbacks, OnBeginHeadersCallback);
+  nghttp2_session_callbacks_set_on_header_callback2(
+    callbacks, OnHeaderCallback);
+  nghttp2_session_callbacks_set_on_frame_recv_callback(
+    callbacks, OnFrameReceive);
+  nghttp2_session_callbacks_set_on_stream_close_callback(
+    callbacks, OnStreamClose);
+  nghttp2_session_callbacks_set_on_begin_frame_callback(
+    callbacks, OnBeginFrameReceived);
+  nghttp2_session_callbacks_set_on_data_chunk_recv_callback(
+    callbacks, OnDataChunkReceived);
+
+  if (kHasGetPaddingCallback) {
+    nghttp2_session_callbacks_set_select_padding_callback(
+      callbacks, OnSelectPadding);
+  }
+}
+
+Nghttp2Session::Callbacks::~Callbacks() {
+  nghttp2_session_callbacks_del(callbacks);
+}
+
+Nghttp2Session::Callbacks Nghttp2Session::callback_struct_saved[2] = {
+  Callbacks(false),
+  Callbacks(true)
+};
 
 }  // namespace http2
 }  // namespace node
