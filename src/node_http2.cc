@@ -659,11 +659,10 @@ int Http2Session::DoWrite(WriteWrap* req_wrap,
 
   std::shared_ptr<nghttp2_stream_t> stream_handle;
   Local<String> stream_string = FIXED_ONE_BYTE_STRING(env->isolate(), "stream");
-  if (req_wrap_obj->Has(context, stream_string).FromJust()) {
+  {
     Local<Value> val =
         req_wrap_obj->Get(context, stream_string).ToLocalChecked();
-    CHECK(val->IsNumber());
-    if (!(stream_handle = FindStream(val->Int32Value()))) {
+    if (!val->IsNumber() || !(stream_handle = FindStream(val->Int32Value()))) {
       // invalid stream
       req_wrap->Dispatched();
       req_wrap->Done(0);
