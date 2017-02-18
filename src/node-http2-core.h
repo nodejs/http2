@@ -43,14 +43,6 @@ typedef enum {
 
 
 // Callbacks
-typedef void (*nghttp2_stream_alloc_cb)(
-    std::shared_ptr<nghttp2_stream_t> handle,
-    size_t suggested_size,
-    const uv_buf_t* buf);
-typedef void (*nghttp2_stream_read_cb)(
-    std::shared_ptr<nghttp2_stream_t> stream,
-    ssize_t nread,
-    const uv_buf_t* buf);
 typedef void (*nghttp2_stream_write_cb)(
     nghttp2_stream_write_t* req,
     int status);
@@ -268,11 +260,6 @@ struct nghttp2_data_chunks_s {
   unsigned int nbufs = 0;
   MaybeStackBuffer<uv_buf_t, MAX_BUFFER_COUNT> buf;
 };
-
-inline int nghttp2_stream_read_start(
-    std::shared_ptr<nghttp2_stream_t> handle,
-    nghttp2_stream_alloc_cb alloc_cb,
-    nghttp2_stream_read_cb read_cb);
 
 inline int nghttp2_stream_write(
     nghttp2_stream_write_t* req,
