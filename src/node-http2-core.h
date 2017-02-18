@@ -8,7 +8,7 @@
 #include "uv.h"
 #include "nghttp2/nghttp2.h"
 
-#include <map>
+#include <unordered_map>
 #include <memory>
 #include <string>
 
@@ -233,7 +233,7 @@ class Nghttp2Session {
   nghttp2_pending_cb_list* pending_callbacks_tail = nullptr;
   nghttp2_pending_cb_list* ready_callbacks_head = nullptr;
   nghttp2_pending_cb_list* ready_callbacks_tail = nullptr;
-  std::map<int32_t, std::shared_ptr<nghttp2_stream_t>> streams;
+  std::unordered_map<int32_t, std::shared_ptr<nghttp2_stream_t>> streams;
 };
 
 struct nghttp2_stream_s {
