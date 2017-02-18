@@ -567,6 +567,7 @@ class SessionShutdownWrap : public ReqWrap<uv_idle_t> {
   Nghttp2Session* handle() {
     return handle_;
   }
+
  private:
   Nghttp2Session* handle_;
   DoneCb cb_;
