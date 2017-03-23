@@ -34,10 +34,15 @@ server.listen(0, common.mustCall(() => {
   const client = http2.connect(`http://localhost:${port}`);
   const req = client.request(headers);
 
-  client.on('push', common.mustCall((stream, headers, flag) => {
-    assert.strictEqual(headers[':status'], '200');
-    assert.strictEqual(headers['content-type'], 'text/html');
-    assert.strictEqual(headers['x-push-data'], 'pushed by server');
+  client.on('stream', common.mustCall((stream, headers, flags) => {
+    assert.strictEqual(headers[':scheme'], 'http');
+    assert.strictEqual(headers[':path'], '/foobar');
+    assert.strictEqual(headers[':authority'], `localhost:${port}`);
+    stream.on('push', common.mustCall((headers, flags) => {
+      assert.strictEqual(headers[':status'], '200');
+      assert.strictEqual(headers['content-type'], 'text/html');
+      assert.strictEqual(headers['x-push-data'], 'pushed by server');
+    }));
   }));
 
   let data = '';
