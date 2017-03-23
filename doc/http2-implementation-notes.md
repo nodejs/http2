@@ -50,18 +50,16 @@ const server = http2.createSecureServer(options, (req, res) => {
 
   res.writeHead(200, {'content-type': 'text/html'});
 
-  const favicon = res.createPushResponse();
-  favicon.path = '/favicon.ico';
-  favicon.push((req, res) => {
-    res.setHeader('content-type', 'image/jpeg');
-    fs.createReadStream('/some/image.jpg').pipe(res);
+  const favicon = res.createPushRequest({':path': '/favicon.ico'});
+  favicon.push((err, res) => {
+    res.setHeader('content-type', 'image/png');
+    fs.createReadStream('/some/logo.png').pipe(res);
   });
 
-  const pushResponse = res.createPushResponse();
-  pushResponse.path = '/image.jpg';
-  pushResponse.push((req, res) => {
+  const pushResponse = res.createPushRequest({':path': '/image.jpg'});
+  pushResponse.push((err, res) => {
     res.setHeader('content-type', 'image/jpeg');
-    fs.createReadStream('/some/image/jpg').pipe(res);
+    fs.createReadStream('/some/image.jpg').pipe(res);
   });
 
   res.end('<html><head><link rel="preload" href="/favicon.ico"/></head>' +
@@ -299,7 +297,7 @@ The `'rst-stream'` event is emitted when a RST-STREAM frame is received.
 ### Method: `response.writeHeader(statusCode, headers)`
 ### Method: `response.write()`
 ### Method: `response.end()`
-### Method: `response.createPushResponse()`
+### Method: `response.createPushRequest(headers)`
 
 ## HTTP2.createServerSession(options)
 
