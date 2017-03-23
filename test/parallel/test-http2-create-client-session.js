@@ -6,8 +6,15 @@ const h2 = require('http2');
 const net = require('net');
 const body =
   '<html><head></head><body><h1>this is some data</h2></body></html>';
+let pathname;
 
-const server = h2.createServer();
+const server = h2.createServer(common.mustCall(requestListener));
+
+function requestListener(request, response) {
+  assert.equal(pathname, request.path);
+  assert.equal(pathname, request.url);
+  assert.equal(pathname, request.headers[':path']);
+}
 
 // we use the lower-level API here
 server.on('stream', common.mustCall(onStream));
@@ -28,12 +35,14 @@ server.on('listening', common.mustCall(function() {
   // TODO mcollina remove on('connect')
   socket.on('connect', function() {
     const client = h2.createClientSession(socket);
+    
+    pathname = `/${Math.random()}`;
 
     const headers = {
       ':method': 'GET',
       ':scheme': 'http',
       ':authority': `localhost:${this.address().port}`,
-      ':path': '/'
+      ':path': pathname
     };
 
     const req = client.request(headers);
