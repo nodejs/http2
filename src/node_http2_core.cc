@@ -14,11 +14,14 @@ int Nghttp2Session::OnBeginHeadersCallback(nghttp2_session* session,
                                            const nghttp2_frame* frame,
                                            void* user_data) {
   Nghttp2Session* handle = static_cast<Nghttp2Session*>(user_data);
-  if (!handle->HasStream(frame->hd.stream_id)) {
-    handle->StreamInit(frame->hd.stream_id, frame->headers.cat);
+  int32_t stream_id = (frame->hd.type == NGHTTP2_PUSH_PROMISE) ?
+    frame->push_promise.promised_stream_id :
+    frame->hd.stream_id;
+  if (!handle->HasStream(stream_id)) {
+    handle->StreamInit(stream_id, frame->headers.cat);
   } else {
     std::shared_ptr<Nghttp2Stream> stream_handle;
-    stream_handle = handle->FindStream(frame->hd.stream_id);
+    stream_handle = handle->FindStream(stream_id);
     assert(stream_handle);
     stream_handle->current_headers_category_ = frame->headers.cat;
   }
@@ -33,7 +36,10 @@ int Nghttp2Session::OnHeaderCallback(nghttp2_session* session,
                                      void* user_data) {
   Nghttp2Session* handle = static_cast<Nghttp2Session*>(user_data);
   std::shared_ptr<Nghttp2Stream> stream_handle;
-  stream_handle = handle->FindStream(frame->hd.stream_id);
+  int32_t stream_id = (frame->hd.type == NGHTTP2_PUSH_PROMISE) ?
+    frame->push_promise.promised_stream_id :
+    frame->hd.stream_id;
+  stream_handle = handle->FindStream(stream_id);
   assert(stream_handle);
 
   nghttp2_header_list* header = header_free_list.pop();
@@ -52,6 +58,7 @@ int Nghttp2Session::OnFrameReceive(nghttp2_session* session,
   std::shared_ptr<Nghttp2Stream> stream_handle;
   nghttp2_pending_cb_list* pending_cb;
   nghttp2_pending_headers_cb* cb;
+  int32_t stream_id;
   switch (frame->hd.type) {
     case NGHTTP2_DATA:
       stream_handle = handle->FindStream(frame->hd.stream_id);
@@ -62,8 +69,12 @@ int Nghttp2Session::OnFrameReceive(nghttp2_session* session,
         handle->QueuePendingDataChunks(stream_handle.get(), frame->hd.flags);
       }
       break;
+    case NGHTTP2_PUSH_PROMISE:
     case NGHTTP2_HEADERS:
-      stream_handle = handle->FindStream(frame->hd.stream_id);
+      stream_id = (frame->hd.type == NGHTTP2_PUSH_PROMISE) ?
+        frame->push_promise.promised_stream_id :
+        frame->hd.stream_id;
+      stream_handle = handle->FindStream(stream_id);
       assert(stream_handle);
       cb = pending_headers_free_list.pop();
       cb->handle = stream_handle;
