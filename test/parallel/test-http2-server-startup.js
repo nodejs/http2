@@ -56,7 +56,7 @@ assert.doesNotThrow(() => {
     const port = server.address().port;
     client = net.connect(port, common.mustCall());
   }));
-  timer = setTimeout(() => common.fail('server timeout failed'),
+  timer = setTimeout(() => assert.fail('server timeout failed'),
                      common.platformTimeout(1100));
 }
 
@@ -77,6 +77,6 @@ assert.doesNotThrow(() => {
     client = tls.connect({port: port, rejectUnauthorized: false},
                          common.mustCall());
   }));
-  timer = setTimeout(() => common.fail('server timeout failed'),
+  timer = setTimeout(() => assert.fail('server timeout failed'),
                      common.platformTimeout(1100));
 }
