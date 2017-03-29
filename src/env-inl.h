@@ -234,6 +234,7 @@ inline Environment::~Environment() {
   delete[] heap_space_statistics_buffer_;
   delete[] http_parser_buffer_;
   delete[] http2_socket_buffer_;
+  delete[] http2_default_settings_buffer_;
 }
 
 inline v8::Isolate* Environment::isolate() const {
@@ -351,6 +352,15 @@ inline void Environment::set_heap_space_statistics_buffer(double* pointer) {
   heap_space_statistics_buffer_ = pointer;
 }
 
+inline int32_t* Environment::http2_default_settings_buffer() const {
+  CHECK_NE(http2_default_settings_buffer_, nullptr);
+  return http2_default_settings_buffer_;
+}
+
+inline void Environment::set_http2_default_settings_buffer(int32_t* pointer) {
+  CHECK_EQ(http2_default_settings_buffer_, nullptr);  // Should be set only once
+  http2_default_settings_buffer_ = pointer;
+}
 
 inline char* Environment::http_parser_buffer() const {
   return http_parser_buffer_;
