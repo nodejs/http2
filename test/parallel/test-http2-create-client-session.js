@@ -3,14 +3,14 @@
 const common = require('../common');
 const assert = require('assert');
 const h2 = require('http2');
-const net = require('net');
 const body =
   '<html><head></head><body><h1>this is some data</h2></body></html>';
 
 const server = h2.createServer();
+const count = 10;
 
 // we use the lower-level API here
-server.on('stream', common.mustCall(onStream));
+server.on('stream', common.mustCall(onStream, count));
 
 function onStream(stream) {
   stream.respond({
@@ -22,20 +22,15 @@ function onStream(stream) {
 
 server.listen(0);
 
+let expected = count;
+
 server.on('listening', common.mustCall(function() {
-  const socket = net.connect(this.address());
 
-  // TODO mcollina remove on('connect')
-  socket.on('connect', function() {
-    const client = h2.createClientSession(socket);
+  const client = h2.connect(`http://localhost:${this.address().port}`);
 
-    const headers = {
-      ':method': 'GET',
-      ':scheme': 'http',
-      ':authority': `localhost:${this.address().port}`,
-      ':path': '/'
-    };
+  const headers = { ':path': '/' };
 
+  for (let n = 0; n < count; n++) {
     const req = client.request(headers);
 
     req.on('response', common.mustCall(function(headers) {
@@ -48,11 +43,14 @@ server.on('listening', common.mustCall(function() {
     let data = '';
     req.setEncoding('utf8');
     req.on('data', (d) => data += d);
-    req.on('end', common.mustCall(function() {
+    req.on('end', common.mustCall(() => {
       assert.strictEqual(body, data);
-      server.close();
-      socket.destroy();
+      if (--expected === 0) {
+        server.close();
+        client.socket.destroy();
+      }
     }));
     req.end();
-  });
+  }
+
 }));

@@ -485,6 +485,9 @@ class Environment {
   inline double* heap_space_statistics_buffer() const;
   inline void set_heap_space_statistics_buffer(double* pointer);
 
+  inline int32_t* http2_default_settings_buffer() const;
+  inline void set_http2_default_settings_buffer(int32_t* pointer);
+
   inline char* http_parser_buffer() const;
   inline void set_http_parser_buffer(char* buffer);
   inline char* http2_socket_buffer() const;
@@ -599,6 +602,7 @@ class Environment {
 
   double* heap_statistics_buffer_ = nullptr;
   double* heap_space_statistics_buffer_ = nullptr;
+  int32_t* http2_default_settings_buffer_ = nullptr;
 
   char* http_parser_buffer_;
   char* http2_socket_buffer_;

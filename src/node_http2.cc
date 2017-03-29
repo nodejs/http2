@@ -24,6 +24,7 @@
 namespace node {
 
 using v8::Array;
+using v8::ArrayBuffer;
 using v8::Boolean;
 using v8::Context;
 using v8::External;
@@ -41,6 +42,15 @@ using v8::String;
 using v8::Value;
 
 namespace http2 {
+
+static const int kDefaultSettingsCount = 4;
+
+enum Http2DefaultSettingsIndex {
+  IDX_DEFAULT_SETTINGS_HEADER_TABLE_SIZE,
+  IDX_DEFAULT_SETTINGS_ENABLE_PUSH,
+  IDX_DEFAULT_SETTINGS_INITIAL_WINDOW_SIZE,
+  IDX_DEFAULT_SETTINGS_MAX_FRAME_SIZE
+};
 
 Http2Options::Http2Options(Environment* env, Local<Value> options) {
   nghttp2_option_new(&options_);
@@ -304,31 +314,17 @@ void PackSettings(const FunctionCallbackInfo<Value>& args) {
 }
 
 // Used to fill in the spec defined initial values for each setting.
-void GetDefaultSettings(const FunctionCallbackInfo<Value>& args) {
+void RefreshDefaultSettings(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
-  Isolate* isolate = env->isolate();
-  Local<Context> context = env->context();
-  CHECK(args[0]->IsObject());
-  Local<Object> obj = args[0].As<Object>();
-  obj->Set(context,
-           FIXED_ONE_BYTE_STRING(isolate, "headerTableSize"),
-           Integer::NewFromUnsigned(
-               isolate,
-               DEFAULT_SETTINGS_HEADER_TABLE_SIZE)).FromJust();
-  obj->Set(context,
-           FIXED_ONE_BYTE_STRING(isolate, "enablePush"),
-           Boolean::New(isolate, DEFAULT_SETTINGS_ENABLE_PUSH)).FromJust();
-  obj->Set(context,
-           FIXED_ONE_BYTE_STRING(isolate, "initialWindowSize"),
-           Integer::NewFromUnsigned(
-               isolate,
-               DEFAULT_SETTINGS_INITIAL_WINDOW_SIZE)).FromJust();
-  obj->Set(context,
-           FIXED_ONE_BYTE_STRING(isolate, "maxFrameSize"),
-           Integer::NewFromUnsigned(
-               isolate,
-               DEFAULT_SETTINGS_MAX_FRAME_SIZE)).FromJust();
-  args.GetReturnValue().Set(obj);
+  int32_t* const buffer = env->http2_default_settings_buffer();
+  buffer[IDX_DEFAULT_SETTINGS_HEADER_TABLE_SIZE] =
+      DEFAULT_SETTINGS_HEADER_TABLE_SIZE;
+  buffer[IDX_DEFAULT_SETTINGS_ENABLE_PUSH] =
+      DEFAULT_SETTINGS_ENABLE_PUSH;
+  buffer[IDX_DEFAULT_SETTINGS_INITIAL_WINDOW_SIZE] =
+      DEFAULT_SETTINGS_INITIAL_WINDOW_SIZE;
+  buffer[IDX_DEFAULT_SETTINGS_MAX_FRAME_SIZE] =
+      DEFAULT_SETTINGS_MAX_FRAME_SIZE;
 }
 
 
@@ -1010,6 +1006,20 @@ void Initialize(Local<Object> target,
   Isolate* isolate = env->isolate();
   HandleScope scope(isolate);
 
+  // Initialize the buffer used to store the default settings
+  env->set_http2_default_settings_buffer(
+    new int32_t[kDefaultSettingsCount]);
+
+  const size_t http2_default_settings_buffer_byte_length =
+      sizeof(*env->http2_default_settings_buffer()) *
+      kDefaultSettingsCount;
+
+  target->Set(FIXED_ONE_BYTE_STRING(env->isolate(),
+                                    "defaultSettingsArrayBuffer"),
+              ArrayBuffer::New(env->isolate(),
+                               env->http2_default_settings_buffer(),
+                               http2_default_settings_buffer_byte_length));
+
   // Method to fetch the nghttp2 string description of an nghttp2 error code
   env->SetMethod(target, "nghttp2ErrorString", HttpErrorString);
 
@@ -1139,7 +1149,7 @@ HTTP_STATUS_CODES(V)
 DATA_FLAGS(V)
 #undef V
 
-  env->SetMethod(target, "getDefaultSettings", GetDefaultSettings);
+  env->SetMethod(target, "refreshDefaultSettings", RefreshDefaultSettings);
   env->SetMethod(target, "packSettings", PackSettings);
 
 
