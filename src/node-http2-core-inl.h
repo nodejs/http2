@@ -111,7 +111,6 @@ void Nghttp2Session::DrainDataChunks(nghttp2_pending_data_chunks_cb* cb) {
   assert(cb != nullptr);
   std::shared_ptr<nghttp2_data_chunks_t> chunks;
   unsigned int n = 0;
-  size_t amount = 0;
 
   while (cb->head != nullptr) {
     if (chunks == nullptr) {
@@ -124,17 +123,12 @@ void Nghttp2Session::DrainDataChunks(nghttp2_pending_data_chunks_cb* cb) {
     }
     nghttp2_data_chunk_t* item = cb->head;
     chunks->buf[n++] = uv_buf_init(item->buf.base, item->buf.len);
-    amount += item->buf.len;
     cb->head = item->next;
     data_chunk_free_list.push(item);
     if (n == arraysize(chunks->buf) || cb->head == nullptr) {
       chunks->nbufs = n;
       OnDataChunks(cb->handle, chunks);
-      // Notify the nghttp2_session that a given chunk of data has been
-      // consumed and we are ready to receive more data for this stream
-      nghttp2_session_consume(session_, cb->handle->id(), amount);
       n = 0;
-      amount = 0;
     }
   }
   pending_data_chunks_free_list.push(cb);
@@ -267,7 +261,6 @@ int Nghttp2Session::Init(uv_loop_t* loop,
   } else {
     nghttp2_option_new(&opts);
   }
-  nghttp2_option_set_no_auto_window_update(opts, 1);
 
   switch (type) {
     case NGHTTP2_SESSION_SERVER:
