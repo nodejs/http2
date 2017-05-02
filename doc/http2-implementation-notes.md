@@ -64,7 +64,9 @@ const server = http2.createSecureServer(options, (req, res) => {
     fs.createReadStream('/some/image/jpg').pipe(res);
   });
 
-    res.end('<html><head><link rel="preload" href="/favicon.ico"/></head><body><h1>this is some data</h2><img src="/image.jpg" /></body></html>');
+  res.end('<html><head><link rel="preload" href="/favicon.ico"/></head>' +
+          '<body><h1>this is some data</h2><img src="/image.jpg" /></body>' +
+          '</html>');
 
 });
 server.listen(8000);
