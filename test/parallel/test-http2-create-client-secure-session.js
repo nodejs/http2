@@ -59,10 +59,9 @@ server.on('listening', common.mustCall(function() {
       req.setEncoding('utf8');
       req.on('data', (d) => data += d);
       req.on('end', common.mustCall(() => {
-        assert.deepStrictEqual(JSON.parse(data), {
-          servername: 'localhost',
-          alpnProtocol: 'h2'
-        });
+        const jsonData = JSON.parse(data);
+        assert.strictEqual(jsonData.servername, 'localhost');
+        assert(jsonData.alpnProtocol === 'h2' || jsonData.alpnProtocol === 'hc');
         if (--expected === 0) {
           server.close();
           client.socket.destroy();
