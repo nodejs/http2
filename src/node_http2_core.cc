@@ -197,24 +197,25 @@ ssize_t Nghttp2Session::OnStreamRead(nghttp2_session* session,
 
   while (stream_handle->queue_head_ != nullptr) {
     nghttp2_stream_write_queue* head = stream_handle->queue_head_;
-    for (unsigned int n = stream_handle->queue_head_index_;
-         n < head->nbufs; n++) {
-      if (head->bufs[n].len > 0) {
-        size_t len = head->bufs[n].len - stream_handle->queue_head_offset_;
-        len = len < remaining ? len : remaining;
-        memcpy(buf + offset,
-               head->bufs[n].base + stream_handle->queue_head_offset_,
-               len);
-        offset += len;
-        remaining -= len;
-        if (len < head->bufs[n].len) {
-          stream_handle->queue_head_offset_ += len;
-        } else {
-          stream_handle->queue_head_index_++;
-          stream_handle->queue_head_offset_ = 0;
-        }
-      } else {
+    while (stream_handle->queue_head_index_ < head->nbufs) {
+      if (remaining == 0) {
         goto end;
+      }
+
+      unsigned int n = stream_handle->queue_head_index_;
+      // len is the number of bytes in head->bufs[n] that are yet to be written
+      size_t len = head->bufs[n].len - stream_handle->queue_head_offset_;
+      size_t bytes_to_write = len < remaining ? len : remaining;
+      memcpy(buf + offset,
+             head->bufs[n].base + stream_handle->queue_head_offset_,
+             bytes_to_write);
+      offset += bytes_to_write;
+      remaining -= bytes_to_write;
+      if (bytes_to_write < len) {
+        stream_handle->queue_head_offset_ += bytes_to_write;
+      } else {
+        stream_handle->queue_head_index_++;
+        stream_handle->queue_head_offset_ = 0;
       }
     }
     stream_handle->queue_head_offset_ = 0;
