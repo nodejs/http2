@@ -6,36 +6,35 @@ const Buffer = require('buffer').Buffer;
 
 assert.doesNotThrow(() => process.binding('http2'));
 
-const http2 = process.binding('http2');
+const binding = process.binding('http2');
+const http2 = require('http2');
 
-assert(http2.Http2Session);
-assert(http2.SessionShutdownWrap);
-assert.strictEqual(typeof http2.Http2Session, 'function');
-assert.strictEqual(typeof http2.SessionShutdownWrap, 'function');
+assert(binding.Http2Session);
+assert(binding.SessionShutdownWrap);
+assert.strictEqual(typeof binding.Http2Session, 'function');
+assert.strictEqual(typeof binding.SessionShutdownWrap, 'function');
 
-const settings = require('http2').getDefaultSettings();
+const settings = http2.getDefaultSettings();
 assert.strictEqual(settings.headerTableSize, 4096);
 assert.strictEqual(settings.enablePush, true);
 assert.strictEqual(settings.initialWindowSize, 65535);
 assert.strictEqual(settings.maxFrameSize, 16384);
 
-assert.strictEqual(http2.nghttp2ErrorString(-517),
+assert.strictEqual(binding.nghttp2ErrorString(-517),
                    'GOAWAY has already been sent');
 
 const check = Buffer.from([0x00, 0x01, 0x00, 0x00, 0x10, 0x00, 0x00, 0x04,
                            0x00, 0x00, 0xff, 0xff, 0x00, 0x05, 0x00, 0x00,
                            0x40, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01]);
-const val = http2.packSettings(require('http2').getDefaultSettings());
+const val = http2.getPackedSettings(http2.getDefaultSettings());
 assert.deepStrictEqual(val, check);
 
-assert.doesNotThrow(() => {
-  assert(Buffer.isBuffer(require('http2').getPackedSettings()));
-});
+assert.doesNotThrow(() => assert(Buffer.isBuffer(http2.getPackedSettings())));
 
 // assert constants are present
-assert(http2.constants);
-assert.strictEqual(typeof http2.constants, 'object');
-const constants = http2.constants;
+assert(binding.constants);
+assert.strictEqual(typeof binding.constants, 'object');
+const constants = binding.constants;
 
 const expectedStatusCodes = {
   HTTP_STATUS_CONTINUE: 100,
