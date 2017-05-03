@@ -12,7 +12,10 @@ function checkRstCode(rstMethod, expectRstCode) {
       ':status': 200
     });
     stream.end('test');
-    stream[rstMethod]();
+    if (rstMethod === 'rstStream')
+      stream[rstMethod](expectRstCode);
+    else
+      stream[rstMethod]();
   });
 
   server.listen(0, common.mustCall(() => {

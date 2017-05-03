@@ -82,27 +82,36 @@ inline void nghttp2_free_headers_list(nghttp2_pending_headers_cb* cb) {
   }
 }
 
-void Nghttp2Session::DrainHeaders(nghttp2_pending_headers_cb* cb) {
+void Nghttp2Session::DrainHeaders(nghttp2_pending_headers_cb* cb,
+                                  bool freeOnly) {
   assert(cb != nullptr);
-  OnHeaders(cb->handle, cb->headers, cb->category, cb->flags);
+  if (!freeOnly)
+    OnHeaders(cb->handle, cb->headers, cb->category, cb->flags);
   nghttp2_free_headers_list(cb);
   pending_headers_free_list.push(cb);
 }
 
-void Nghttp2Session::DrainStreamClose(nghttp2_pending_stream_close_cb* cb) {
+void Nghttp2Session::DrainStreamClose(nghttp2_pending_stream_close_cb* cb,
+                                      bool freeOnly) {
   assert(cb != nullptr);
-  OnStreamClose(cb->handle->id(), cb->error_code);
-  streams_.erase(cb->handle->id());
-  pending_stream_close_free_list.push(cb);
+  if (!freeOnly)
+    OnStreamClose(cb->handle->id(), cb->error_code);
+  if (cb->handle != nullptr) {
+    streams_.erase(cb->handle->id());
+    pending_stream_close_free_list.push(cb);
+  }
 }
 
-void Nghttp2Session::DrainSend(nghttp2_pending_session_send_cb* cb) {
+void Nghttp2Session::DrainSend(nghttp2_pending_session_send_cb* cb,
+                               bool freeOnly) {
   assert(cb != nullptr);
-  Send(cb->buf, cb->length);
+  if (!freeOnly)
+    Send(cb->buf, cb->length);
   pending_session_send_free_list.push(cb);
 }
 
-void Nghttp2Session::DrainDataChunks(nghttp2_pending_data_chunks_cb* cb) {
+void Nghttp2Session::DrainDataChunks(nghttp2_pending_data_chunks_cb* cb,
+                                     bool freeOnly) {
   assert(cb != nullptr);
   std::shared_ptr<nghttp2_data_chunks_t> chunks;
   unsigned int n = 0;
@@ -122,42 +131,49 @@ void Nghttp2Session::DrainDataChunks(nghttp2_pending_data_chunks_cb* cb) {
     data_chunk_free_list.push(item);
     if (n == arraysize(chunks->buf) || cb->head == nullptr) {
       chunks->nbufs = n;
-      OnDataChunks(cb->handle, chunks);
+      if (!freeOnly)
+        OnDataChunks(cb->handle, chunks);
       n = 0;
     }
   }
   pending_data_chunks_free_list.push(cb);
 }
 
-void Nghttp2Session::DrainSettings(nghttp2_pending_settings_cb* cb) {
+void Nghttp2Session::DrainSettings(nghttp2_pending_settings_cb* cb,
+                                   bool freeOnly) {
   assert(cb != nullptr);
-  OnSettings();
+  if (!freeOnly)
+    OnSettings();
   pending_settings_free_list.push(cb);
 }
 
-void Nghttp2Session::DrainCallbacks() {
+void Nghttp2Session::DrainCallbacks(bool freeOnly) {
   while (ready_callbacks_head_ != nullptr) {
     nghttp2_pending_cb_list* item = ready_callbacks_head_;
+    ready_callbacks_head_ = item->next;
     switch (item->type) {
       case NGHTTP2_CB_SESSION_SEND:
-        DrainSend(static_cast<nghttp2_pending_session_send_cb*>(item->cb));
+        DrainSend(static_cast<nghttp2_pending_session_send_cb*>(item->cb),
+                  freeOnly);
         break;
       case NGHTTP2_CB_HEADERS:
-        DrainHeaders(static_cast<nghttp2_pending_headers_cb*>(item->cb));
+        DrainHeaders(static_cast<nghttp2_pending_headers_cb*>(item->cb),
+                     freeOnly);
         break;
       case NGHTTP2_CB_STREAM_CLOSE:
         DrainStreamClose(
-            static_cast<nghttp2_pending_stream_close_cb*>(item->cb));
+            static_cast<nghttp2_pending_stream_close_cb*>(item->cb), freeOnly);
         break;
       case NGHTTP2_CB_DATA_CHUNKS:
-        DrainDataChunks(static_cast<nghttp2_pending_data_chunks_cb*>(item->cb));
+        DrainDataChunks(static_cast<nghttp2_pending_data_chunks_cb*>(item->cb),
+                        freeOnly);
         break;
       case NGHTTP2_CB_SETTINGS:
-        DrainSettings(static_cast<nghttp2_pending_settings_cb*>(item->cb));
+        DrainSettings(static_cast<nghttp2_pending_settings_cb*>(item->cb),
+                      freeOnly);
       case NGHTTP2_CB_NONE:
         break;
     }
-    ready_callbacks_head_ = item->next;
     cb_free_list.push(item);
   }
   ready_callbacks_tail_ = nullptr;
@@ -281,7 +297,7 @@ int Nghttp2Session::Init(uv_loop_t* loop,
 
   uv_prepare_start(&prep_, [](uv_prepare_t* t) {
     Nghttp2Session* handle = ContainerOf(&Nghttp2Session::prep_, t);
-
+    assert(handle);
     handle->SendAndMakeReady();
     handle->DrainCallbacks();
   });
@@ -310,11 +326,8 @@ bool Nghttp2Session::IsAliveSession() {
 
 int Nghttp2Session::Free() {
   assert(session_ != nullptr);
-  assert(pending_callbacks_head_ == nullptr);
-  assert(pending_callbacks_tail_ == nullptr);
-  assert(ready_callbacks_head_ == nullptr);
-  assert(ready_callbacks_tail_ == nullptr);
 
+  // Stop the loop
   uv_prepare_stop(&prep_);
   auto PrepClose = [](uv_handle_t* handle) {
     Nghttp2Session* session =
@@ -324,6 +337,21 @@ int Nghttp2Session::Free() {
     session->OnFreeSession();
   };
   uv_close(reinterpret_cast<uv_handle_t*>(&prep_), PrepClose);
+
+  // // If there are any pending callbacks, those need to be cleared out
+  // // to avoid memory leaks. Normally this should only happen in abnormal
+  // // cases, such as the premature destruction of the socket which forces
+  // // us to simply drop pending data on the floor.
+  LINKED_LIST_ADD(ready_callbacks,
+                  pending_callbacks_head_);
+  pending_callbacks_head_ = nullptr;
+  pending_callbacks_tail_ = nullptr;
+  DrainCallbacks(true);
+
+  assert(pending_callbacks_head_ == nullptr);
+  assert(pending_callbacks_tail_ == nullptr);
+  assert(ready_callbacks_head_ == nullptr);
+  assert(ready_callbacks_tail_ == nullptr);
 
   nghttp2_session_terminate_session(session_, NGHTTP2_NO_ERROR);
   nghttp2_session_del(session_);
