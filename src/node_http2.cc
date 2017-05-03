@@ -316,16 +316,10 @@ void Http2Session::Consume(const FunctionCallbackInfo<Value>& args) {
   session->Consume(args[0].As<External>());
 }
 
-
-void Http2Session::Unconsume(const FunctionCallbackInfo<Value>& args) {
-  Http2Session* session;
-  ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
-  session->Unconsume();
-}
-
 void Http2Session::Destroy(const FunctionCallbackInfo<Value>& args) {
   Http2Session* session;
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
+  session->Unconsume();
   session->Free();
 }
 
@@ -656,8 +650,7 @@ uv_buf_t* Http2Session::AllocateSend(size_t recommended) {
   return &buf->buffer_;
 }
 
-void Http2Session::Send(uv_buf_t* buf,
-                        size_t length) {
+void Http2Session::Send(uv_buf_t* buf, size_t length) {
   // Do not attempt to write data if the stream is not alive or is closing
   if (stream_ == nullptr || !stream_->IsAlive() || stream_->IsClosing()) {
     return;
@@ -1010,8 +1003,6 @@ void Initialize(Local<Object> target,
   session->InstanceTemplate()->SetInternalFieldCount(1);
   env->SetProtoMethod(session, "consume",
                       Http2Session::Consume);
-  env->SetProtoMethod(session, "unconsume",
-                      Http2Session::Unconsume);
   env->SetProtoMethod(session, "destroy",
                       Http2Session::Destroy);
   env->SetProtoMethod(session, "sendHeaders",

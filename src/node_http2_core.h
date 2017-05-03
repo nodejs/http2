@@ -162,13 +162,20 @@ class Nghttp2Session {
  private:
   inline void SendAndMakeReady();
   inline void DrainSend();
+  inline void DrainHeaders(nghttp2_pending_headers_cb*,
+                           bool freeOnly = false);
   inline void QueuePendingCallback(nghttp2_pending_cb_list* item);
-  inline void DrainHeaders(nghttp2_pending_headers_cb*);
-  inline void DrainStreamClose(nghttp2_pending_stream_close_cb*);
-  inline void DrainSend(nghttp2_pending_session_send_cb*);
-  inline void DrainDataChunks(nghttp2_pending_data_chunks_cb*);
-  inline void DrainSettings(nghttp2_pending_settings_cb*);
-  inline void DrainCallbacks();
+  inline void DrainStreamClose(nghttp2_pending_stream_close_cb*,
+                               bool freeOnly = false);
+  inline void DrainSend(nghttp2_pending_session_send_cb*,
+                        bool freeOnly = false);
+  inline void DrainDataChunks(nghttp2_pending_data_chunks_cb*,
+                              bool freeOnly = false);
+  inline void DrainSettings(nghttp2_pending_settings_cb*,
+                            bool freeOnly = false);
+
+  // If freeOnly is true, the callbacks will be freed without taking action
+  inline void DrainCallbacks(bool freeOnly = false);
 
   static void StreamDeleter(Nghttp2Stream* handle);
 
