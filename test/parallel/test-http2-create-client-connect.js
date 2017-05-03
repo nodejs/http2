@@ -28,7 +28,7 @@ const URL = url.URL;
     let count = items.length;
 
     const maybeClose = common.mustCall((client) => {
-      client.socket.destroy();
+      client.destroy();
       if (--count === 0) {
         setImmediate(() => server.close());
       }
