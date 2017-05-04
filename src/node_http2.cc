@@ -339,7 +339,7 @@ void Http2Session::New(const FunctionCallbackInfo<Value>& args) {
 }
 
 
-// Capture the stream that will this session will use to send and receive data
+// Capture the stream that this session will use to send and receive data
 void Http2Session::Consume(const FunctionCallbackInfo<Value>& args) {
   Http2Session* session;
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
