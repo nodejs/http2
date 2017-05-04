@@ -3,7 +3,7 @@
 
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
-#include "node-http2-core.h"
+#include "node_http2_core.h"
 #include "node_internals.h"  // arraysize
 #include "util.h"
 #include "util-inl.h"
