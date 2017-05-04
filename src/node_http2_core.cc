@@ -1,5 +1,5 @@
-#include "node-http2-core.h"
-#include "node-http2-core-inl.h"
+#include "node_http2_core.h"
+#include "node_http2_core-inl.h"
 
 namespace node {
 namespace http2 {
