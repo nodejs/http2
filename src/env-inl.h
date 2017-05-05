@@ -198,8 +198,8 @@ inline Environment::Environment(IsolateData* isolate_data,
 #endif
       handle_cleanup_waiting_(0),
       http_parser_buffer_(nullptr),
-      fs_stats_field_array_(nullptr),
       http2_socket_buffer_(nullptr),
+      fs_stats_field_array_(nullptr),
       context_(context->GetIsolate(), context) {
   // We'll be creating new objects so make sure we've entered the context.
   v8::HandleScope handle_scope(isolate());
