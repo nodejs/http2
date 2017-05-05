@@ -7,8 +7,8 @@
 #include "nghttp2/nghttp2.h"
 #include "uv.h"
 
-#include "node-http2-core.h"
-#include "node-http2-core-inl.h"
+#include "node_http2_core.h"
+#include "node_http2_core-inl.h"
 #include "env.h"
 #include "env-inl.h"
 #include "node_crypto_bio.h"
