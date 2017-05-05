@@ -40,7 +40,7 @@ boundary crossing that has to occur.
 
 ```js
 const fs = require('fs');
-const http2 = require('http').HTTP2;
+const http2 = require('http2');
 const options = {
   key: fs.readFileSync('test/fixtures/keys/agent2-key.pem'),
   cert: fs.readFileSync('test/fixtures/keys/agent2-cert.pem')
@@ -119,7 +119,7 @@ the type of HEADERS frame received. This type is determined by the underlying
 nghttp2 library based on the HTTP/2 stream state.
 
 ```js
-const constants = require('http').HTTP2.constants;
+const constants = require('http2').constants;
 const session = getSessionSomehow();
 const socket = getSocketSomehow();
 session.on('begin-headers', (stream, category) => {
