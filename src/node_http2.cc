@@ -835,7 +835,7 @@ void Http2Session::OnHeaders(std::shared_ptr<Nghttp2Stream> stream,
   Isolate* isolate = env()->isolate();
   HandleScope scope(isolate);
   Local<Object> holder = Object::New(isolate);
-  holder->SetPrototype(context, v8::Null(isolate));
+  holder->SetPrototype(context, v8::Null(isolate)).ToChecked();
   Local<String> name_str;
   Local<String> value_str;
   Local<Array> array;
