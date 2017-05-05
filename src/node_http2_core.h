@@ -239,7 +239,8 @@ class Nghttp2Session {
   friend class Nghttp2Stream;
 };
 
-struct Nghttp2Stream : public std::enable_shared_from_this<Nghttp2Stream> {
+class Nghttp2Stream : public std::enable_shared_from_this<Nghttp2Stream> { 
+ public:
   inline ~Nghttp2Stream();
 
   inline int Write(
