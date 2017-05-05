@@ -51,7 +51,7 @@ server.on('listening', common.mustCall(function() {
       assert.strictEqual(body, data);
       if (--expected === 0) {
         server.close();
-        client.socket.destroy();
+        client.destroy();
       }
     }));
     req.end();
