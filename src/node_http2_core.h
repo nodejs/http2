@@ -9,8 +9,6 @@
 #include "nghttp2/nghttp2.h"
 
 #include <unordered_map>
-#include <memory>
-#include <string>
 
 namespace node {
 namespace http2 {
