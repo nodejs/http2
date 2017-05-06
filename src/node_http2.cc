@@ -1,45 +1,13 @@
 #include "node.h"
 #include "node_buffer.h"
-#include "nghttp2/nghttp2.h"
 #include "node_http2.h"
-#include "node_http2_core.h"
-#include "node_http2_core-inl.h"
-#include "stream_base.h"
-#include "stream_base-inl.h"
-#include "string_bytes.h"
-
-#include "async-wrap.h"
-#include "async-wrap-inl.h"
-#include "env.h"
-#include "env-inl.h"
-#include "util.h"
-#include "util-inl.h"
-#include "v8-profiler.h"
-#include "v8.h"
-
-#include <vector>
-#include <algorithm>
-#include <memory>
 
 namespace node {
 
-using v8::Array;
 using v8::ArrayBuffer;
 using v8::Boolean;
 using v8::Context;
-using v8::External;
-using v8::Function;
-using v8::FunctionCallbackInfo;
-using v8::FunctionTemplate;
-using v8::Handle;
-using v8::HandleScope;
 using v8::Integer;
-using v8::Isolate;
-using v8::Local;
-using v8::Name;
-using v8::Object;
-using v8::String;
-using v8::Value;
 
 namespace http2 {
 
