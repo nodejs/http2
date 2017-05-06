@@ -3,48 +3,17 @@
 
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
-#include "node.h"
-#include "nghttp2/nghttp2.h"
-#include "uv.h"
-
-#include "node_http2_core.h"
 #include "node_http2_core-inl.h"
-#include "env.h"
-#include "env-inl.h"
-#include "node_crypto_bio.h"
-#include "stream_base.h"
 #include "stream_base-inl.h"
 #include "string_bytes.h"
-#include "util.h"
-#include "util-inl.h"
-#include "v8.h"
-
-#include "vector"
-#include "map"
-#include "memory"
 
 namespace node {
 namespace http2 {
 
 using v8::Array;
-using v8::Context;
 using v8::EscapableHandleScope;
-using v8::Exception;
-using v8::External;
-using v8::External;
-using v8::Function;
-using v8::FunctionCallbackInfo;
-using v8::HandleScope;
-using v8::Integer;
 using v8::Isolate;
-using v8::Local;
-using v8::Map;
 using v8::MaybeLocal;
-using v8::Name;
-using v8::Object;
-using v8::Persistent;
-using v8::String;
-using v8::Value;
 
 #define HTTP_KNOWN_HEADERS(V)                                                 \
   V(STATUS, ":status")                                                        \
