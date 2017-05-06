@@ -5,13 +5,7 @@
 
 #include "node_http2_core.h"
 #include "node_internals.h"  // arraysize
-#include "util.h"
-#include "util-inl.h"
 #include "freelist.h"
-
-#include "uv.h"
-#include "nghttp2/nghttp2.h"
-#include <string>
 
 namespace node {
 namespace http2 {
