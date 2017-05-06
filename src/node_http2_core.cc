@@ -1,4 +1,3 @@
-#include "node_http2_core.h"
 #include "node_http2_core-inl.h"
 
 namespace node {
