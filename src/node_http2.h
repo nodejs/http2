@@ -198,9 +198,6 @@ enum padding_strategy_type {
   PADDING_STRATEGY_CALLBACK
 };
 
-#define MIN(A, B) (A < B ? A : B)
-#define MAX(A, B) (A > B ? A : B)
-
 #define DATA_FLAGS(V)                                                         \
   V(ENDSTREAM)                                                                \
   V(ENDDATA)                                                                  \
