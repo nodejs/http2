@@ -57,18 +57,19 @@ inline void CopyHeaders(Isolate* isolate,
     CHECK(value->IsString());
     size_t keylen = StringBytes::StorageSize(isolate, key, ASCII);
     size_t valuelen = StringBytes::StorageSize(isolate, value, ASCII);
-    (*list)[n].flags = NGHTTP2_NV_FLAG_NONE;
+    nghttp2_nv& nv = (*list)[n];
+    nv.flags = NGHTTP2_NV_FLAG_NONE;
     if (header->Get(2)->BooleanValue())
-      (*list)[n].flags |= NGHTTP2_NV_FLAG_NO_INDEX;
-    (*list)[n].name = Malloc<uint8_t>(keylen);
-    (*list)[n].value = Malloc<uint8_t>(valuelen);
-    (*list)[n].namelen =
+      nv.flags |= NGHTTP2_NV_FLAG_NO_INDEX;
+    nv.name = Malloc<uint8_t>(keylen);
+    nv.value = Malloc<uint8_t>(valuelen);
+    nv.namelen =
         StringBytes::Write(isolate,
-                           reinterpret_cast<char*>((*list)[n].name),
+                           reinterpret_cast<char*>(nv.name),
                            keylen, key, ASCII);
-    (*list)[n].valuelen =
+    nv.valuelen =
         StringBytes::Write(isolate,
-                           reinterpret_cast<char*>((*list)[n].value),
+                           reinterpret_cast<char*>(nv.value),
                            valuelen, value, ASCII);
   }
 }
