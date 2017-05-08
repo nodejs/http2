@@ -190,7 +190,7 @@ ssize_t Nghttp2Session::OnStreamRead(nghttp2_session* session,
       if (remaining == 0) {
         goto end;
       }
-      
+
       unsigned int n = stream_handle->queue_head_index_;
       // len is the number of bytes in head->bufs[n] that are yet to be written
       size_t len = head->bufs[n].len - stream_handle->queue_head_offset_;

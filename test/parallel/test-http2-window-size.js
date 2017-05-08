@@ -15,25 +15,24 @@ function run(buffers, initialWindowSize) {
     const expectedBuffer = Buffer.concat(buffers);
 
     const server = h2.createServer();
-    const a = [];
     server.on('stream', (stream) => {
       let i = 0;
       const writeToStream = () => {
-        let cont = () => {
+        const cont = () => {
           i++;
           if (i < buffers.length) {
             setImmediate(writeToStream);
           } else {
             stream.end();
           }
-        }
+        };
         const drained = stream.write(buffers[i]);
         if (drained) {
           cont();
         } else {
-          stream.once('drain', writeToStream);
+          stream.once('drain', cont);
         }
-      }
+      };
       writeToStream();
     });
     server.listen(0);
@@ -55,8 +54,8 @@ function run(buffers, initialWindowSize) {
             ':method': 'GET',
             ':path': '/'
           });
-          let responses = [];
-          req.on('data', data => {
+          const responses = [];
+          req.on('data', (data) => {
             responses.push(data);
           });
           req.on('end', common.mustCall(() => {
@@ -76,10 +75,9 @@ function run(buffers, initialWindowSize) {
 
 const bufferValueRange = [0, 1, 2, 3];
 const buffersList = [
-  bufferValueRange.map(a => Buffer.alloc(1 << 4, a)),
-  bufferValueRange.map(a => Buffer.alloc((1 << 8) - 1, a)),
-  bufferValueRange.map(a => Buffer.alloc(1 << 8, a)),
-  bufferValueRange.map(a => Buffer.alloc(1 << 17, a))
+  bufferValueRange.map((a) => Buffer.alloc(1 << 4, a)),
+  bufferValueRange.map((a) => Buffer.alloc((1 << 8) - 1, a)),
+  bufferValueRange.map((a) => Buffer.alloc(1 << 17, a))
 ];
 const initialWindowSizeList = [
   1 << 4,
