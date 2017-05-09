@@ -3,10 +3,6 @@
 const common = require('../common');
 const assert = require('assert');
 const http2 = require('http2');
-const path = require('path');
-const tls = require('tls');
-const net = require('net');
-const fs = require('fs');
 const body =
   '<html><head></head><body><h1>this is some data</h2></body></html>';
 
