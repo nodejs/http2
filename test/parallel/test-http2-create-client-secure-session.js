@@ -6,15 +6,14 @@ const path = require('path');
 const fs = require('fs');
 const tls = require('tls');
 const h2 = require('http2');
-const body =
-  '<html><head></head><body><h1>this is some data</h2></body></html>';
 
 const key = loadKey('agent8-key.pem');
 const cert = loadKey('agent8-cert.pem');
 const ca = loadKey('fake-startcom-root-cert.pem');
 
 function loadKey(keyname) {
-  return fs.readFileSync(path.join(common.fixturesDir, 'keys', keyname), 'binary');
+  return fs.readFileSync(
+    path.join(common.fixturesDir, 'keys', keyname), 'binary');
 }
 
 const server = h2.createSecureServer({cert, key});
@@ -47,7 +46,7 @@ server.on('listening', common.mustCall(function() {
     req.on('response', common.mustCall(function(headers) {
       assert.strictEqual(headers[':status'], '200', 'status code is set');
       assert.strictEqual(headers['content-type'], 'text/html',
-                        'content type is set');
+                         'content type is set');
       assert(headers['date'], 'there is a date');
     }));
 
