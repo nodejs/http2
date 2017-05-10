@@ -24,20 +24,25 @@ server.listen(0, common.mustCall(function() {
       ':authority': `localhost:${port}`
     };
 
-    const pushRequest = response.createPushRequest(headers);
+    response.createPushResponse(
+      headers,
+      common.mustCall(function(error, pushResponse) {
+        assert.strictEqual(error, null);
+        assert.ok(pushResponse.stream.id % 2 === 0);
 
-    pushRequest.push(common.mustCall(function(error, pushResponse) {
-      assert.strictEqual(error, null);
-      assert.ok(pushResponse.stream.id % 2 === 0);
+        pushResponse.write('This is a server-initiated response');
 
-      pushResponse.write('This is a server-initiated response');
+        // TODO(sebdeckers) Remove this forced delay workaround.
+        // See possibly related bugs:
+        // - https://github.com/nodejs/http2/issues/72
+        // - https://github.com/nodejs/http2/issues/77
 
-      // TODO(sebdeckers) Remove this forced delay workaround.
-      // pushResponse.end();
-      // response.end();
-      setTimeout(() => pushResponse.end(), 100);
-      setTimeout(() => response.end(), 200);
-    }));
+        // pushResponse.end();
+        // response.end();
+        setTimeout(() => pushResponse.end(), 100);
+        setTimeout(() => response.end(), 200);
+      })
+    );
   }));
 
   const url = `http://localhost:${port}`;
