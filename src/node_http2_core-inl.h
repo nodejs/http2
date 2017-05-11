@@ -73,6 +73,7 @@ void Nghttp2Session::QueuePendingCallback(nghttp2_pending_cb_list* item) {
 }
 
 inline void nghttp2_free_headers_list(nghttp2_pending_headers_cb* cb) {
+  assert(cb != nullptr);
   while (cb->headers != nullptr) {
     nghttp2_header_list* item = cb->headers;
     nghttp2_rcbuf_decref(item->value);
