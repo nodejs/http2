@@ -23,6 +23,7 @@
 * [File System](fs.html)
 * [Globals](globals.html)
 * [HTTP](http.html)
+* [HTTP/2](http2.html)
 * [HTTPS](https.html)
 * [Modules](modules.html)
 * [Net](net.html)
