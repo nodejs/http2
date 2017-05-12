@@ -14,7 +14,7 @@ const fs = require('fs');
 const net = require('net');
 const tls = require('tls');
 const zlib = require('zlib');
-const http2 = process.binding('http2');
+const http2 = require('http2');
 const ChildProcess = require('child_process').ChildProcess;
 const StreamWrap = require('_stream_wrap').StreamWrap;
 const HTTPParser = process.binding('http_parser').HTTPParser;
@@ -114,6 +114,26 @@ new ChildProcess();
 
 new HTTPParser(HTTPParser.REQUEST);
 
+{
+  const server = http2.createServer();
+  server.on('stream', common.mustCall((stream) => {
+    stream.respond({ ':status': 200 });
+    stream.end('hello world');
+  }));
+  server.listen(0, common.mustCall(() => {
+    const client = http2.connect(`http://localhost:${server.address().port}`);
+    const req = client.request({ ':path': '/' });
+    req.on('response', common.mustCall());
+    req.on('data', common.noop);
+    req.on('end', common.mustCall(() => {
+      server.close();
+      client.shutdown(common.mustCall(() => client.destroy()));
+    }));
+    req.end();
+  }));
+}
+
+
 process.on('exit', function() {
   if (keyList.length !== 0) {
     process._rawDebug('Not all keys have been used:');
@@ -121,13 +141,3 @@ process.on('exit', function() {
     assert.strictEqual(keyList.length, 0);
   }
 });
-
-{
-  const session = new http2.Http2Session(
-    http2.constants.NGHTTP2_SESSION_SERVER, {});
-  const wrap = new http2.SessionShutdownWrap();
-  wrap.oncomplete = function() {
-    session.destroy();
-  };
-  session.submitShutdown(wrap, true, false, 0, 0, '');
-}
