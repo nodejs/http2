@@ -57,7 +57,7 @@ inline void CopyHeaders(Isolate* isolate,
     CHECK(value->IsString());
     size_t keylen = StringBytes::StorageSize(isolate, key, ASCII);
     size_t valuelen = StringBytes::StorageSize(isolate, value, ASCII);
-    nghttp2_nv nv = (*list)[n];
+    nghttp2_nv& nv = (*list)[n];
     nv.flags = NGHTTP2_NV_FLAG_NONE;
     if (header->Get(2)->BooleanValue())
       nv.flags |= NGHTTP2_NV_FLAG_NO_INDEX;
