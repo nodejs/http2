@@ -2,6 +2,8 @@
 
 // This test ensures that servers are able to send data independent of window
 // size.
+// TODO: This test makes large buffer allocations (128KiB) and should be tested
+// on smaller / IoT platforms in case this poses problems for these targets.
 
 const assert = require('assert');
 const common = require('../common');
