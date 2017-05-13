@@ -445,8 +445,6 @@ class Http2Session : public AsyncWrap,
   static void StreamReadStart(const FunctionCallbackInfo<Value>& args);
   static void StreamReadStop(const FunctionCallbackInfo<Value>& args);
   static void SetNextStreamID(const FunctionCallbackInfo<Value>& args);
-  static void GetSessionState(const FunctionCallbackInfo<Value>& args);
-  static void GetStreamState(const FunctionCallbackInfo<Value>& args);
   static void SubmitShutdown(const FunctionCallbackInfo<Value>& args);
 
   template <get_setting fn>
