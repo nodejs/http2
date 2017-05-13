@@ -13,11 +13,37 @@ namespace http2 {
 
 static const int kDefaultSettingsCount = 4;
 
-enum Http2DefaultSettingsIndex {
-  IDX_DEFAULT_SETTINGS_HEADER_TABLE_SIZE,
-  IDX_DEFAULT_SETTINGS_ENABLE_PUSH,
-  IDX_DEFAULT_SETTINGS_INITIAL_WINDOW_SIZE,
-  IDX_DEFAULT_SETTINGS_MAX_FRAME_SIZE
+enum Http2SettingsIndex {
+  IDX_SETTINGS_HEADER_TABLE_SIZE,
+  IDX_SETTINGS_ENABLE_PUSH,
+  IDX_SETTINGS_INITIAL_WINDOW_SIZE,
+  IDX_SETTINGS_MAX_FRAME_SIZE,
+  IDX_SETTINGS_MAX_CONCURRENT_STREAMS,
+  IDX_SETTINGS_MAX_HEADER_LIST_SIZE,
+  IDX_SETTINGS_COUNT
+};
+
+enum Http2SessionStateIndex {
+  IDX_SESSION_STATE_EFFECTIVE_LOCAL_WINDOW_SIZE,
+  IDX_SESSION_STATE_EFFECTIVE_RECV_DATA_LENGTH,
+  IDX_SESSION_STATE_NEXT_STREAM_ID,
+  IDX_SESSION_STATE_LOCAL_WINDOW_SIZE,
+  IDX_SESSION_STATE_LAST_PROC_STREAM_ID,
+  IDX_SESSION_STATE_REMOTE_WINDOW_SIZE,
+  IDX_SESSION_STATE_OUTBOUND_QUEUE_SIZE,
+  IDX_SESSION_STATE_HD_DEFLATE_DYNAMIC_TABLE_SIZE,
+  IDX_SESSION_STATE_HD_INFLATE_DYNAMIC_TABLE_SIZE,
+  IDX_SESSION_STATE_COUNT
+};
+
+enum Http2StreamStateIndex {
+  IDX_STREAM_STATE,
+  IDX_STREAM_STATE_WEIGHT,
+  IDX_STREAM_STATE_SUM_DEPENDENCY_WEIGHT,
+  IDX_STREAM_STATE_LOCAL_CLOSE,
+  IDX_STREAM_STATE_REMOTE_CLOSE,
+  IDX_STREAM_STATE_LOCAL_WINDOW_SIZE,
+  IDX_STREAM_STATE_COUNT
 };
 
 Http2Options::Http2Options(Environment* env, Local<Value> options) {
@@ -120,123 +146,11 @@ ssize_t Http2Session::OnCallbackPadding(size_t frameLen,
   return frameLen;
 }
 
-
-void Http2Session::GetStreamState(const FunctionCallbackInfo<Value>& args) {
-  Http2Session* session;
-  ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
-  int32_t id = args[0]->Int32Value();
-  nghttp2_session* s = session->session();
-  std::shared_ptr<Nghttp2Stream> stream_handle;
-
-  if (!(stream_handle = session->FindStream(args[0]->Int32Value()))) {
-    // invalid stream
-    return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
-  }
-  nghttp2_stream* stream =
-      nghttp2_session_find_stream(s, stream_handle->id());
-
-  Environment* env = Environment::GetCurrent(args);
-  Isolate* isolate = env->isolate();
-  Local<Context> context = env->context();
-
-  CHECK(args[1]->IsObject());
-  Local<Object> obj = args[1].As<Object>();
-
-  nghttp2_stream_proto_state state = nghttp2_stream_get_state(stream);
-  int32_t w = nghttp2_stream_get_weight(stream);
-  int32_t sdw = nghttp2_stream_get_sum_dependency_weight(stream);
-  int lclose = nghttp2_session_get_stream_local_close(s, id);
-  int rclose = nghttp2_session_get_stream_remote_close(s, id);
-  int32_t size =
-      nghttp2_session_get_stream_local_window_size(s, id);
-
-  obj->Set(context, FIXED_ONE_BYTE_STRING(isolate, "state"),
-           Integer::NewFromUnsigned(isolate, state)).FromJust();
-  obj->Set(context, FIXED_ONE_BYTE_STRING(isolate, "weight"),
-           Integer::New(isolate, w)).FromJust();
-  obj->Set(context, FIXED_ONE_BYTE_STRING(isolate, "sumDependencyWeight"),
-           Integer::New(isolate, sdw)).FromJust();
-  obj->Set(context, FIXED_ONE_BYTE_STRING(isolate, "streamLocalClose"),
-           Integer::New(isolate, lclose)).FromJust();
-  obj->Set(context, FIXED_ONE_BYTE_STRING(isolate, "streamRemoteClose"),
-           Integer::New(isolate, rclose)).FromJust();
-  obj->Set(context, FIXED_ONE_BYTE_STRING(isolate, "localWindowSize"),
-           Integer::New(isolate, size)).FromJust();
-
-  args.GetReturnValue().Set(0);
-}
-
-void Http2Session::GetSessionState(const FunctionCallbackInfo<Value>& args) {
-  Http2Session* session;
-  ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
-  CHECK(args[0]->IsObject());
-  Local<Object> obj = args[0].As<Object>();
-  Environment* env = Environment::GetCurrent(args);
-  Isolate* isolate = env->isolate();
-  Local<Context> context = env->context();
-  nghttp2_session* s = session->session();
-
-  int32_t elws = nghttp2_session_get_effective_local_window_size(s);
-  int32_t erdl = nghttp2_session_get_effective_recv_data_length(s);
-  uint32_t nextid = nghttp2_session_get_next_stream_id(s);
-  int32_t slws = nghttp2_session_get_local_window_size(s);
-  int32_t lpsid = nghttp2_session_get_last_proc_stream_id(s);
-  int32_t srws = nghttp2_session_get_remote_window_size(s);
-  size_t outbound_size = nghttp2_session_get_outbound_queue_size(s);
-  size_t ddts = nghttp2_session_get_hd_deflate_dynamic_table_size(s);
-  size_t idts = nghttp2_session_get_hd_inflate_dynamic_table_size(s);
-
-  obj->Set(context, FIXED_ONE_BYTE_STRING(isolate, "effectiveLocalWindowSize"),
-           Integer::New(isolate, elws)).FromJust();
-  obj->Set(context, FIXED_ONE_BYTE_STRING(isolate, "effectiveRecvDataLength"),
-           Integer::New(isolate, erdl)).FromJust();
-  obj->Set(context, FIXED_ONE_BYTE_STRING(isolate, "nextStreamID"),
-           Integer::NewFromUnsigned(isolate, nextid)).FromJust();
-  obj->Set(context, FIXED_ONE_BYTE_STRING(isolate, "localWindowSize"),
-           Integer::New(isolate, slws)).FromJust();
-  obj->Set(context, FIXED_ONE_BYTE_STRING(isolate, "lastProcStreamID"),
-           Integer::New(isolate, lpsid)).FromJust();
-  obj->Set(context, FIXED_ONE_BYTE_STRING(isolate, "remoteWindowSize"),
-           Integer::New(isolate, srws)).FromJust();
-  obj->Set(context, FIXED_ONE_BYTE_STRING(isolate, "outboundQueueSize"),
-           Integer::NewFromUnsigned(isolate, outbound_size)).FromJust();
-  obj->Set(context, FIXED_ONE_BYTE_STRING(isolate, "deflateDynamicTableSize"),
-           Integer::NewFromUnsigned(isolate, ddts)).FromJust();
-  obj->Set(context, FIXED_ONE_BYTE_STRING(isolate, "inflateDynamicTableSize"),
-           Integer::NewFromUnsigned(isolate, idts)).FromJust();
-}
-
 void Http2Session::SetNextStreamID(const FunctionCallbackInfo<Value>& args) {
   Http2Session* session;
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
   nghttp2_session* s = session->session();
   nghttp2_session_set_next_stream_id(s, args[0]->Int32Value());
-}
-
-void FillInSettings(Environment* env,
-                    nghttp2_session* session,
-                    get_setting fn,
-                    Local<Object> obj) {
-  Local<Context> context = env->context();
-  Isolate* isolate = env->isolate();
-#define V(name, id, type, c)                                            \
-  obj->Set(context,                                                     \
-           FIXED_ONE_BYTE_STRING(isolate, name),                        \
-           type::c(isolate, fn(session, id))).FromJust();
-  SETTINGS(V)
-#undef V
-}
-
-template <get_setting fn>
-void Http2Session::GetSettings(
-    const FunctionCallbackInfo<Value>& args) {
-  Http2Session* session;
-  ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
-  Environment* env = session->env();
-  CHECK(args[0]->IsObject());
-  Local<Object> obj = args[0].As<Object>();
-  FillInSettings(env, session->session(), fn, obj);
-  args.GetReturnValue().Set(obj);
 }
 
 void HttpErrorString(const FunctionCallbackInfo<Value>& args) {
@@ -286,16 +200,117 @@ void PackSettings(const FunctionCallbackInfo<Value>& args) {
 void RefreshDefaultSettings(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
   int32_t* const buffer = env->http2_default_settings_buffer();
-  buffer[IDX_DEFAULT_SETTINGS_HEADER_TABLE_SIZE] =
+  buffer[IDX_SETTINGS_HEADER_TABLE_SIZE] =
       DEFAULT_SETTINGS_HEADER_TABLE_SIZE;
-  buffer[IDX_DEFAULT_SETTINGS_ENABLE_PUSH] =
+  buffer[IDX_SETTINGS_ENABLE_PUSH] =
       DEFAULT_SETTINGS_ENABLE_PUSH;
-  buffer[IDX_DEFAULT_SETTINGS_INITIAL_WINDOW_SIZE] =
+  buffer[IDX_SETTINGS_INITIAL_WINDOW_SIZE] =
       DEFAULT_SETTINGS_INITIAL_WINDOW_SIZE;
-  buffer[IDX_DEFAULT_SETTINGS_MAX_FRAME_SIZE] =
+  buffer[IDX_SETTINGS_MAX_FRAME_SIZE] =
       DEFAULT_SETTINGS_MAX_FRAME_SIZE;
 }
 
+template <get_setting fn>
+void RefreshSettings(const FunctionCallbackInfo<Value>& args) {
+  CHECK_EQ(args.Length(), 1);
+  CHECK(args[0]->IsObject());
+  Http2Session* session;
+  ASSIGN_OR_RETURN_UNWRAP(&session, args[0].As<Object>());
+  Environment* env = session->env();
+  nghttp2_session* s = session->session();
+
+  int32_t* const buffer = env->http2_settings_buffer();
+  buffer[IDX_SETTINGS_HEADER_TABLE_SIZE] =
+      fn(s, NGHTTP2_SETTINGS_HEADER_TABLE_SIZE);
+  buffer[IDX_SETTINGS_MAX_CONCURRENT_STREAMS] =
+      fn(s, NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS);
+  buffer[IDX_SETTINGS_INITIAL_WINDOW_SIZE] =
+      fn(s, NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE);
+  buffer[IDX_SETTINGS_MAX_FRAME_SIZE] =
+      fn(s, NGHTTP2_SETTINGS_MAX_FRAME_SIZE);
+  buffer[IDX_SETTINGS_MAX_HEADER_LIST_SIZE] =
+      fn(s, NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE);
+  buffer[IDX_SETTINGS_ENABLE_PUSH] =
+      fn(s, NGHTTP2_SETTINGS_ENABLE_PUSH);
+}
+
+// Used to fill in the spec defined initial values for each setting.
+void RefreshSessionState(const FunctionCallbackInfo<Value>& args) {
+  CHECK_EQ(args.Length(), 1);
+  CHECK(args[0]->IsObject());
+  Environment* env = Environment::GetCurrent(args);
+  double* const buffer = env->http2_session_state_buffer();
+  Http2Session* session;
+  ASSIGN_OR_RETURN_UNWRAP(&session, args[0].As<Object>());
+  nghttp2_session* s = session->session();
+
+  buffer[IDX_SESSION_STATE_EFFECTIVE_LOCAL_WINDOW_SIZE] =
+      nghttp2_session_get_effective_local_window_size(s);
+  buffer[IDX_SESSION_STATE_EFFECTIVE_RECV_DATA_LENGTH] =
+      nghttp2_session_get_effective_recv_data_length(s);
+  buffer[IDX_SESSION_STATE_NEXT_STREAM_ID] =
+      nghttp2_session_get_next_stream_id(s);
+  buffer[IDX_SESSION_STATE_LOCAL_WINDOW_SIZE] =
+      nghttp2_session_get_local_window_size(s);
+  buffer[IDX_SESSION_STATE_LAST_PROC_STREAM_ID] =
+      nghttp2_session_get_last_proc_stream_id(s);
+  buffer[IDX_SESSION_STATE_REMOTE_WINDOW_SIZE] =
+      nghttp2_session_get_remote_window_size(s);
+  buffer[IDX_SESSION_STATE_OUTBOUND_QUEUE_SIZE] =
+      nghttp2_session_get_outbound_queue_size(s);
+  buffer[IDX_SESSION_STATE_HD_DEFLATE_DYNAMIC_TABLE_SIZE] =
+      nghttp2_session_get_hd_deflate_dynamic_table_size(s);
+  buffer[IDX_SESSION_STATE_HD_INFLATE_DYNAMIC_TABLE_SIZE] =
+      nghttp2_session_get_hd_inflate_dynamic_table_size(s);
+}
+
+void RefreshStreamState(const FunctionCallbackInfo<Value>& args) {
+  CHECK_EQ(args.Length(), 2);
+  CHECK(args[0]->IsObject());
+  CHECK(args[1]->IsNumber());
+  Http2Session* session;
+  ASSIGN_OR_RETURN_UNWRAP(&session, args[0].As<Object>());
+  int32_t id = args[1]->Int32Value();
+  nghttp2_session* s = session->session();
+  std::shared_ptr<Nghttp2Stream> stream_handle;
+
+  Environment* env = Environment::GetCurrent(args);
+  double* const buffer = env->http2_stream_state_buffer();
+
+  if (!(stream_handle = session->FindStream(id))) {
+    buffer[IDX_STREAM_STATE] = NGHTTP2_STREAM_STATE_IDLE;
+    buffer[IDX_STREAM_STATE_WEIGHT] =
+        buffer[IDX_STREAM_STATE_SUM_DEPENDENCY_WEIGHT] =
+        buffer[IDX_STREAM_STATE_LOCAL_CLOSE] =
+        buffer[IDX_STREAM_STATE_REMOTE_CLOSE] =
+        buffer[IDX_STREAM_STATE_LOCAL_WINDOW_SIZE] = 0;
+    return;
+  }
+  nghttp2_stream* stream =
+      nghttp2_session_find_stream(s, stream_handle->id());
+
+  if (stream == nullptr) {
+    buffer[IDX_STREAM_STATE] = NGHTTP2_STREAM_STATE_IDLE;
+    buffer[IDX_STREAM_STATE_WEIGHT] =
+        buffer[IDX_STREAM_STATE_SUM_DEPENDENCY_WEIGHT] =
+        buffer[IDX_STREAM_STATE_LOCAL_CLOSE] =
+        buffer[IDX_STREAM_STATE_REMOTE_CLOSE] =
+        buffer[IDX_STREAM_STATE_LOCAL_WINDOW_SIZE] = 0;
+  } else {
+    buffer[IDX_STREAM_STATE] =
+        nghttp2_stream_get_state(stream);
+    buffer[IDX_STREAM_STATE_WEIGHT] =
+        nghttp2_stream_get_weight(stream);
+    buffer[IDX_STREAM_STATE_SUM_DEPENDENCY_WEIGHT] =
+        nghttp2_stream_get_sum_dependency_weight(stream);
+    buffer[IDX_STREAM_STATE_LOCAL_CLOSE] =
+        nghttp2_session_get_stream_local_close(s, id);
+    buffer[IDX_STREAM_STATE_REMOTE_CLOSE] =
+        nghttp2_session_get_stream_remote_close(s, id);
+    buffer[IDX_STREAM_STATE_LOCAL_WINDOW_SIZE] =
+        nghttp2_session_get_stream_local_window_size(s, id);
+  }
+}
 
 void Http2Session::New(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
@@ -968,9 +983,37 @@ void Initialize(Local<Object> target,
   Isolate* isolate = env->isolate();
   HandleScope scope(isolate);
 
+  // Initialize the buffer used to store the session state
+  env->set_http2_session_state_buffer(
+      new double[IDX_SESSION_STATE_COUNT]);
+
+  const size_t http2_session_state_buffer_byte_length =
+      sizeof(*env->http2_session_state_buffer()) *
+      IDX_SESSION_STATE_COUNT;
+
+  target->Set(FIXED_ONE_BYTE_STRING(env->isolate(),
+                                    "sessionStateArrayBuffer"),
+              ArrayBuffer::New(env->isolate(),
+                               env->http2_session_state_buffer(),
+                               http2_session_state_buffer_byte_length));
+
+  // Initialize the buffer used to store the stream state
+  env->set_http2_stream_state_buffer(
+      new double[IDX_STREAM_STATE_COUNT]);
+
+  const size_t http2_stream_state_buffer_byte_length =
+      sizeof(*env->http2_stream_state_buffer()) *
+      IDX_STREAM_STATE_COUNT;
+
+  target->Set(FIXED_ONE_BYTE_STRING(env->isolate(),
+                                    "streamStateArrayBuffer"),
+              ArrayBuffer::New(env->isolate(),
+                               env->http2_stream_state_buffer(),
+                               http2_stream_state_buffer_byte_length));
+
   // Initialize the buffer used to store the default settings
   env->set_http2_default_settings_buffer(
-    new int32_t[kDefaultSettingsCount]);
+      new int32_t[kDefaultSettingsCount]);
 
   const size_t http2_default_settings_buffer_byte_length =
       sizeof(*env->http2_default_settings_buffer()) *
@@ -981,6 +1024,20 @@ void Initialize(Local<Object> target,
               ArrayBuffer::New(env->isolate(),
                                env->http2_default_settings_buffer(),
                                http2_default_settings_buffer_byte_length));
+
+  // Initialize the buffer used to store the default settings
+  env->set_http2_settings_buffer(
+      new int32_t[IDX_SETTINGS_COUNT]);
+
+  const size_t http2_settings_buffer_byte_length =
+      sizeof(*env->http2_settings_buffer()) *
+      IDX_SETTINGS_COUNT;
+
+  target->Set(FIXED_ONE_BYTE_STRING(env->isolate(),
+                                    "settingsArrayBuffer"),
+              ArrayBuffer::New(env->isolate(),
+                               env->http2_settings_buffer(),
+                               http2_settings_buffer_byte_length));
 
   // Method to fetch the nghttp2 string description of an nghttp2 error code
   env->SetMethod(target, "nghttp2ErrorString", HttpErrorString);
@@ -1029,14 +1086,6 @@ void Initialize(Local<Object> target,
                       Http2Session::StreamReadStop);
   env->SetProtoMethod(session, "setNextStreamID",
                       Http2Session::SetNextStreamID);
-  env->SetProtoMethod(session, "getSessionState",
-                      Http2Session::GetSessionState);
-  env->SetProtoMethod(session, "getStreamState",
-                      Http2Session::GetStreamState);
-  env->SetProtoMethod(session, "getLocalSettings",
-      Http2Session::GetSettings<nghttp2_session_get_local_settings>);
-  env->SetProtoMethod(session, "getRemoteSettings",
-      Http2Session::GetSettings<nghttp2_session_get_remote_settings>);
   StreamBase::AddMethods<Http2Session>(env, session,
                                         StreamBase::kFlagHasWritev |
                                         StreamBase::kFlagNoShutdown);
@@ -1109,9 +1158,14 @@ HTTP_STATUS_CODES(V)
 DATA_FLAGS(V)
 #undef V
 
+  env->SetMethod(target, "refreshLocalSettings",
+                 RefreshSettings<nghttp2_session_get_local_settings>);
+  env->SetMethod(target, "refreshRemoteSettings",
+                 RefreshSettings<nghttp2_session_get_remote_settings>);
   env->SetMethod(target, "refreshDefaultSettings", RefreshDefaultSettings);
+  env->SetMethod(target, "refreshSessionState", RefreshSessionState);
+  env->SetMethod(target, "refreshStreamState", RefreshStreamState);
   env->SetMethod(target, "packSettings", PackSettings);
-
 
   target->Set(context,
               FIXED_ONE_BYTE_STRING(isolate, "constants"),
