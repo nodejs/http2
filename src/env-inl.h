@@ -334,6 +334,9 @@ inline Environment::~Environment() {
   delete[] http_parser_buffer_;
   delete[] http2_socket_buffer_;
   delete[] http2_default_settings_buffer_;
+  delete[] http2_settings_buffer_;
+  delete[] http2_session_state_buffer_;
+  delete[] http2_stream_state_buffer_;
 }
 
 inline v8::Isolate* Environment::isolate() const {
@@ -482,6 +485,36 @@ inline int32_t* Environment::http2_default_settings_buffer() const {
 inline void Environment::set_http2_default_settings_buffer(int32_t* pointer) {
   CHECK_EQ(http2_default_settings_buffer_, nullptr);  // Should be set only once
   http2_default_settings_buffer_ = pointer;
+}
+
+inline int32_t* Environment::http2_settings_buffer() const {
+  CHECK_NE(http2_settings_buffer_, nullptr);
+  return http2_settings_buffer_;
+}
+
+inline void Environment::set_http2_settings_buffer(int32_t* pointer) {
+  CHECK_EQ(http2_settings_buffer_, nullptr);  // Should be set only once
+  http2_settings_buffer_ = pointer;
+}
+
+inline double* Environment::http2_session_state_buffer() const {
+  CHECK_NE(http2_session_state_buffer_, nullptr);
+  return http2_session_state_buffer_;
+}
+
+inline void Environment::set_http2_session_state_buffer(double* pointer) {
+  CHECK_EQ(http2_session_state_buffer_, nullptr);
+  http2_session_state_buffer_ = pointer;
+}
+
+inline double* Environment::http2_stream_state_buffer() const {
+  CHECK_NE(http2_stream_state_buffer_, nullptr);
+  return http2_stream_state_buffer_;
+}
+
+inline void Environment::set_http2_stream_state_buffer(double* pointer) {
+  CHECK_EQ(http2_stream_state_buffer_, nullptr);
+  http2_stream_state_buffer_ = pointer;
 }
 
 inline char* Environment::http_parser_buffer() const {
