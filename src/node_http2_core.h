@@ -69,6 +69,7 @@ typedef enum {
   NGHTTP2_CB_STREAM_CLOSE,
   NGHTTP2_CB_DATA_CHUNKS,
   NGHTTP2_CB_SETTINGS,
+  NGHTTP2_CB_PRIORITY
 } nghttp2_pending_cb_type;
 
 struct nghttp2_pending_settings_cb {};
@@ -84,6 +85,13 @@ struct nghttp2_pending_data_chunks_cb {
 struct nghttp2_pending_session_send_cb {
   size_t length = 0;
   uv_buf_t* buf = nullptr;
+};
+
+struct nghttp2_pending_priority_cb {
+  int32_t stream;
+  int32_t parent;
+  int32_t weight;
+  int8_t exclusive;
 };
 
 struct nghttp2_pending_headers_cb {
@@ -150,6 +158,10 @@ class Nghttp2Session {
   virtual void OnDataChunks(std::shared_ptr<Nghttp2Stream> stream,
                             std::shared_ptr<nghttp2_data_chunks_t> chunks) {}
   virtual void OnSettings() {}
+  virtual void OnPriority(int32_t stream,
+                          int32_t parent,
+                          int32_t weight,
+                          int8_t exclusive) {}
   virtual ssize_t GetPadding(size_t frameLength,
                              size_t maxFrameLength) { return 0; }
   virtual void OnTrailers(std::shared_ptr<Nghttp2Stream> stream,
@@ -172,6 +184,8 @@ class Nghttp2Session {
   inline void DrainDataChunks(nghttp2_pending_data_chunks_cb*,
                               bool freeOnly = false);
   inline void DrainSettings(nghttp2_pending_settings_cb*,
+                            bool freeOnly = false);
+  inline void DrainPriority(nghttp2_pending_priority_cb*,
                             bool freeOnly = false);
 
   // If freeOnly is true, the callbacks will be freed without taking action
