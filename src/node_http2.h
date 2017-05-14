@@ -396,6 +396,10 @@ class Http2Session : public AsyncWrap,
   void OnDataChunks(std::shared_ptr<Nghttp2Stream> stream,
                     std::shared_ptr<nghttp2_data_chunks_t> chunks) override;
   void OnSettings() override;
+  void OnPriority(int32_t stream,
+                  int32_t parent,
+                  int32_t weight,
+                  int8_t exclusive) override;
   void OnTrailers(std::shared_ptr<Nghttp2Stream> stream,
                   MaybeStackBuffer<nghttp2_nv>* trailers) override;
   uv_buf_t* AllocateSend(size_t recommended) override;
