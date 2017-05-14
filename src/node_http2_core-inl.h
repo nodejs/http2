@@ -43,6 +43,9 @@ extern Freelist<nghttp2_pending_stream_close_cb, FREELIST_MAX>
 extern Freelist<nghttp2_pending_headers_cb, FREELIST_MAX>
     pending_headers_free_list;
 
+extern Freelist<nghttp2_pending_priority_cb, FREELIST_MAX>
+    pending_priority_free_list;
+
 extern Freelist<nghttp2_data_chunks_t, FREELIST_MAX>
     data_chunks_free_list;
 
@@ -147,6 +150,14 @@ void Nghttp2Session::DrainSettings(nghttp2_pending_settings_cb* cb,
   pending_settings_free_list.push(cb);
 }
 
+void Nghttp2Session::DrainPriority(nghttp2_pending_priority_cb* cb,
+                                   bool freeOnly) {
+  assert(cb != nullptr);
+  if (!freeOnly)
+    OnPriority(cb->stream, cb->parent, cb->weight, cb->exclusive);
+  pending_priority_free_list.push(cb);
+}
+
 void Nghttp2Session::DrainCallbacks(bool freeOnly) {
   while (ready_callbacks_head_ != nullptr) {
     nghttp2_pending_cb_list* item = ready_callbacks_head_;
@@ -171,6 +182,11 @@ void Nghttp2Session::DrainCallbacks(bool freeOnly) {
       case NGHTTP2_CB_SETTINGS:
         DrainSettings(static_cast<nghttp2_pending_settings_cb*>(item->cb),
                       freeOnly);
+        break;
+      case NGHTTP2_CB_PRIORITY:
+        DrainPriority(static_cast<nghttp2_pending_priority_cb*>(item->cb),
+                      freeOnly);
+        break;
       case NGHTTP2_CB_NONE:
         break;
     }

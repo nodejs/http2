@@ -922,6 +922,30 @@ void Http2Session::OnSettings() {
   }
 }
 
+void Http2Session::OnPriority(int32_t stream,
+                              int32_t parent,
+                              int32_t weight,
+                              int8_t exclusive) {
+  Local<Context> context = env()->context();
+  Isolate* isolate = env()->isolate();
+  HandleScope scope(isolate);
+  Local<String> onpriority = FIXED_ONE_BYTE_STRING(isolate, "onpriority");
+  if (object()->Has(context, onpriority).FromJust()) {
+    v8::TryCatch try_catch(isolate);
+    Local<Value> argv[4] = {
+      Integer::New(isolate, stream),
+      Integer::New(isolate, parent),
+      Integer::New(isolate, weight),
+      Boolean::New(isolate, exclusive)
+    };
+    Local<Value> ret = MakeCallback(onpriority, arraysize(argv), argv);
+    if (ret.IsEmpty()) {
+      ClearFatalExceptionHandlers(env());
+      FatalException(isolate, try_catch);
+    }
+  }
+}
+
 void Http2Session::OnStreamAllocImpl(size_t suggested_size,
                                       uv_buf_t* buf,
                                       void* ctx) {
