@@ -58,6 +58,9 @@ int Nghttp2Session::OnFrameReceive(nghttp2_session* session,
   std::shared_ptr<Nghttp2Stream> stream_handle;
   nghttp2_pending_cb_list* pending_cb;
   nghttp2_pending_headers_cb* cb;
+  nghttp2_pending_priority_cb* priority_cb;
+  nghttp2_priority_spec pri_spec;
+  nghttp2_priority priority_frame;
   int32_t stream_id;
   switch (frame->hd.type) {
     case NGHTTP2_DATA:
@@ -95,6 +98,22 @@ int Nghttp2Session::OnFrameReceive(nghttp2_session* session,
         pending_cb->cb = pending_settings_free_list.pop();
         handle->QueuePendingCallback(pending_cb);
       }
+    case NGHTTP2_PRIORITY:
+      priority_frame = frame->priority;
+      stream_id = frame->hd.stream_id;
+      if (stream_id > 0) {
+        pri_spec = priority_frame.pri_spec;
+        priority_cb = pending_priority_free_list.pop();
+        priority_cb->stream = stream_id;
+        priority_cb->parent = pri_spec.stream_id;
+        priority_cb->weight = pri_spec.weight;
+        priority_cb->exclusive = pri_spec.exclusive;
+        pending_cb = cb_free_list.pop();
+        pending_cb->type = NGHTTP2_CB_PRIORITY;
+        pending_cb->cb = priority_cb;
+        handle->QueuePendingCallback(pending_cb);
+      }
+      break;
     default:
       break;
   }
@@ -272,6 +291,9 @@ Freelist<nghttp2_pending_stream_close_cb, FREELIST_MAX>
 
 Freelist<nghttp2_pending_headers_cb, FREELIST_MAX>
     pending_headers_free_list;
+
+Freelist<nghttp2_pending_priority_cb, FREELIST_MAX>
+    pending_priority_free_list;
 
 Freelist<nghttp2_data_chunks_t, FREELIST_MAX>
     data_chunks_free_list;
