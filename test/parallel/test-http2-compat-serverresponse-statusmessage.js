@@ -13,6 +13,10 @@ server.listen(0, common.mustCall(function() {
     const statusCode = 200;
     const statusMessage = 'OK';
     const headers = {'foo-bar': 'abc123'};
+    common.expectWarning(
+      'UnsupportedWarning',
+      'Status message is not supported by HTTP/2 (RFC7540 8.1.2.4)'
+    );
     response.writeHead(statusCode, statusMessage, headers);
 
     response.stream.on('finish', common.mustCall(function() {
