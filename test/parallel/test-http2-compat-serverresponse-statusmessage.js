@@ -39,7 +39,7 @@ server.listen(0, common.mustCall(function() {
     };
     const request = client.request(headers);
     request.on('response', common.mustCall(function(headers) {
-      assert.strictEqual(headers[':status'], '200');
+      assert.strictEqual(headers[':status'], 200);
       assert.strictEqual(headers['foo-bar'], 'abc123');
     }, 1));
     request.on('end', common.mustCall(function() {
