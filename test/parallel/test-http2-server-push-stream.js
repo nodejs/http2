@@ -39,7 +39,7 @@ server.listen(0, common.mustCall(() => {
     assert.strictEqual(headers[':path'], '/foobar');
     assert.strictEqual(headers[':authority'], `localhost:${port}`);
     stream.on('push', common.mustCall((headers, flags) => {
-      assert.strictEqual(headers[':status'], '200');
+      assert.strictEqual(headers[':status'], 200);
       assert.strictEqual(headers['content-type'], 'text/html');
       assert.strictEqual(headers['x-push-data'], 'pushed by server');
     }));
