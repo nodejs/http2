@@ -63,13 +63,13 @@ server.on('listening', common.mustCall(() => {
   // Additional informational headers
   req.on('headers', common.mustCall((headers) => {
     assert.notStrictEqual(headers, undefined);
-    assert.strictEqual(headers[':status'], '100');
+    assert.strictEqual(headers[':status'], 100);
   }, 2));
 
   // Response headers
   req.on('response', common.mustCall((headers) => {
     assert.notStrictEqual(headers, undefined);
-    assert.strictEqual(headers[':status'], '200');
+    assert.strictEqual(headers[':status'], 200);
     assert.strictEqual(headers['content-type'], 'text/html');
   }));
 

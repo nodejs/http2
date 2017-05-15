@@ -74,7 +74,7 @@ server.listen(0, common.mustCall(function() {
     requestStream.session.on('stream', common.mustCall(onStream));
 
     requestStream.on('response', common.mustCall(function(headers, flags) {
-      assert.strictEqual(headers[':status'], '200');
+      assert.strictEqual(headers[':status'], 200);
       assert.ok(headers['date']);
       assert.strictEqual(flags, h2.constants.NGHTTP2_FLAG_END_HEADERS);
     }));
