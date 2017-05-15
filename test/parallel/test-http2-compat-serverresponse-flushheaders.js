@@ -31,7 +31,7 @@ server.listen(0, common.mustCall(function() {
     const request = client.request(headers);
     request.on('response', common.mustCall(function(headers, flags) {
       assert.strictEqual(headers['foo-bar'], undefined);
-      assert.strictEqual(headers[':status'], '200');
+      assert.strictEqual(headers[':status'], 200);
     }, 1));
     request.on('end', common.mustCall(function() {
       client.destroy();
