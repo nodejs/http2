@@ -109,14 +109,10 @@ function loadKey(keyname) {
     let count = 2;
 
     // HTTP/2 client
-    connect(
-      origin,
-      { secureContext: createSecureContext({ ca }) },
-      mustCall((session) => {
-        session.destroy();
-        if (--count === 0) server.close();
-      })
-    );
+    connect(origin, clientOptions, mustCall((session) => {
+      session.destroy();
+      if (--count === 0) server.close();
+    }));
 
     // HTTP/1.1 client
     get(Object.assign(parse(origin), clientOptions), mustNotCall())
