@@ -106,15 +106,22 @@ function loadKey(keyname) {
     const origin = `https://localhost:${port}`;
     const clientOptions = { secureContext: createSecureContext({ ca }) };
 
+    let count = 2;
+
     // HTTP/2 client
     connect(
       origin,
       { secureContext: createSecureContext({ ca }) },
-      mustCall((session) => { session.destroy(); })
+      mustCall((session) => {
+        session.destroy();
+        if (--count === 0) server.close();
+      })
     );
 
     // HTTP/1.1 client
     get(Object.assign(parse(origin), clientOptions), mustNotCall())
-      .on('error', mustCall(server.close.bind(server)));
+      .on('error', mustCall(() => {
+        if (--count === 0) server.close();
+      }));
   }));
 }
