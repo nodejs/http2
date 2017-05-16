@@ -713,6 +713,10 @@ static bool CheckHeaderAllowsMultiple(nghttp2_vec* name) {
       break;
     case 4:
       switch (name->base[3]) {
+        case 'e':
+          if (memcmp(name->base, "dat", 3) == 0)
+            return false;
+          break;
         case 'g':
           if (memcmp(name->base, "eta", 3) == 0)
             return false;
@@ -726,6 +730,10 @@ static bool CheckHeaderAllowsMultiple(nghttp2_vec* name) {
             return false;
           break;
       }
+    case 5:
+      if (memcmp(name->base, "range", 5) == 0)
+        return false;
+      break;
     case 6:
       if (memcmp(name->base, "server", 6) == 0)
         return false;
@@ -743,16 +751,36 @@ static bool CheckHeaderAllowsMultiple(nghttp2_vec* name) {
       }
       break;
     case 8:
-      if (memcmp(name->base, "location", 8) == 0)
-        return false;
+      switch (name->base[7]) {
+        case 'e':
+          if (memcmp(name->base, "if-rang", 7) == 0)
+            return false;
+          break;
+        case 'h':
+          if (memcmp(name->base, "if-matc", 7) == 0)
+            return false;
+          break;
+        case 'n':
+          if (memcmp(name->base, "locatio", 7) == 0)
+            return false;
+          break;
+      }
       break;
     case 10:
       if (memcmp(name->base, "user-agent", 10) == 0)
         return false;
       break;
     case 11:
-      if (memcmp(name->base, "retry-after", 11) == 0)
-        return false;
+      switch (name->base[10]) {
+        case '5':
+          if (memcmp(name->base, "content-md", 10) == 0)
+            return false;
+          break;
+        case 'r':
+          if (memcmp(name->base, "retry-afte", 10) == 0)
+            return false;
+          break;
+      }
       break;
     case 12:
       switch (name->base[11]) {
@@ -772,6 +800,10 @@ static bool CheckHeaderAllowsMultiple(nghttp2_vec* name) {
           if (memcmp(name->base, "last-modifie", 12) == 0)
             return false;
           break;
+        case 'h':
+          if (memcmp(name->base, "if-none-matc", 12) == 0)
+            return false;
+          break;
         case 'n':
           if (memcmp(name->base, "authorizatio", 12) == 0)
             return false;
@@ -781,6 +813,22 @@ static bool CheckHeaderAllowsMultiple(nghttp2_vec* name) {
     case 14:
       if (memcmp(name->base, "content-length", 14) == 0)
         return false;
+      break;
+    case 16:
+      switch (name->base[15]) {
+        case 'e':
+          if (memcmp(name->base, "content-languag", 15) == 0)
+            return false;
+          break;
+        case 'g':
+          if (memcmp(name->base, "content-encodin", 15) == 0)
+            return false;
+          break;
+        case 'n':
+          if (memcmp(name->base, "content-locatio", 15) == 0)
+            return false;
+          break;
+      }
       break;
     case 17:
       if (memcmp(name->base, "if-modified-since", 17) == 0)
@@ -793,7 +841,7 @@ static bool CheckHeaderAllowsMultiple(nghttp2_vec* name) {
             return false;
           break;
         case 'n':
-          if (memcmp(name->base, "proxy-authenticatio", 18) == 0)
+          if (memcmp(name->base, "proxy-authorizatio", 18) == 0)
             return false;
           break;
       }
