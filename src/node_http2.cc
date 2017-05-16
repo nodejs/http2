@@ -126,17 +126,16 @@ ssize_t Http2Session::OnCallbackPadding(size_t frameLen,
 
   Local<String> getpadding = FIXED_ONE_BYTE_STRING(isolate, "ongetpadding");
   if (object()->Has(context, getpadding).FromJust()) {
-    Local<Value> argv[2] = {
-      Integer::NewFromUnsigned(isolate, frameLen),
-      Integer::NewFromUnsigned(isolate, maxPayloadLen)
-    };
+    uint32_t* buffer = env()->http2_padding_buffer();
+    buffer[0] = frameLen;
+    buffer[1] = maxPayloadLen;
     v8::TryCatch try_catch(isolate);
-    Local<Value> ret = MakeCallback(getpadding, arraysize(argv), argv);
+    Local<Value> ret = MakeCallback(getpadding, 0, nullptr);
     if (ret.IsEmpty()) {
       ClearFatalExceptionHandlers(env());
       FatalException(isolate, try_catch);
     }
-    uint32_t retval = ret->Uint32Value();
+    uint32_t retval = buffer[2];
     retval = retval <= maxPayloadLen ? retval : maxPayloadLen;
     retval = retval >= frameLen ? retval : frameLen;
     CHECK_GE(retval, frameLen);
@@ -1006,6 +1005,17 @@ void Initialize(Local<Object> target,
   Environment* env = Environment::GetCurrent(context);
   Isolate* isolate = env->isolate();
   HandleScope scope(isolate);
+
+  // Initialize the buffer used for padding callbacks
+  env->set_http2_padding_buffer(new uint32_t[3]);
+  const size_t http2_padding_buffer_byte_length =
+      sizeof(*env->http2_padding_buffer()) * 3;
+
+  target->Set(FIXED_ONE_BYTE_STRING(env->isolate(),
+                                    "paddingArrayBuffer"),
+              ArrayBuffer::New(env->isolate(),
+                               env->http2_padding_buffer(),
+                               http2_padding_buffer_byte_length));
 
   // Initialize the buffer used to store the session state
   env->set_http2_session_state_buffer(
