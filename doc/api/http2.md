@@ -611,6 +611,9 @@ server.listen(80);
   * `noRecvClientMagic` {boolean} (TODO: Add detail)
   * `paddingStrategy` {number} (TODO: Add detail)
   * `peerMaxConcurrentStreams` {number} (TODO: Add detail)
+  * `allowHTTP1` {boolean} Incoming client connections that do not support
+    HTTP/2 will be downgraded to HTTP/1.x when set to `true`. The default value
+    is `false`, which rejects non-HTTP/2 client connections.
   * `settings` {[Settings Object][]} The initial settings to send to the
     remote peer upon connection.
   * ...: Any [`tls.createServer()`][] options can be provided. For
