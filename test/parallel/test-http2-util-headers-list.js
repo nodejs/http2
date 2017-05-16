@@ -98,12 +98,27 @@ assert.throws(() => mapToHeaders({':path': [1, 2, 3]}),
                 message: /^HTTP\/2 pseudo-headers must have a single value$/
               }));
 
-['connection', 'upgrade', 'http2-settings', 'te'].forEach((i) => {
-  assert.throws(() => mapToHeaders({[i]: 'abc'}),
-                common.expectsError({
-                  code: 'ERR_HTTP2_INVALID_CONNECTION_HEADERS',
-                  message: /^HTTP\/1 Connection specific headers are forbidden$/
-                }));
-});
+const regex =
+  /^HTTP\/1 Connection specific headers are forbidden$/;
+['connection',
+ 'upgrade',
+ 'http2-settings',
+ 'te',
+ 'transfer-encoding',
+ 'proxy-connection',
+ 'keep-alive',
+ 'Connection',
+ 'Upgrade',
+ 'HTTP2-Settings',
+ 'TE',
+ 'Transfer-Encoding',
+ 'Proxy-Connection',
+ 'Keep-Alive'].forEach((i) => {
+   assert.throws(() => mapToHeaders({[i]: 'abc'}),
+                 common.expectsError({
+                   code: 'ERR_HTTP2_INVALID_CONNECTION_HEADERS',
+                   message: regex
+                 }), i);
+ });
 
 assert.doesNotThrow(() => mapToHeaders({ te: 'trailers' }));
