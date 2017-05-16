@@ -126,6 +126,7 @@ const expectedHeaderNames = {
   HTTP2_HEADER_CONTENT_RANGE: 'content-range',
   HTTP2_HEADER_CONTENT_TYPE: 'content-type',
   HTTP2_HEADER_COOKIE: 'cookie',
+  HTTP2_HEADER_CONNECTION: 'connection',
   HTTP2_HEADER_ETAG: 'etag',
   HTTP2_HEADER_EXPECT: 'expect',
   HTTP2_HEADER_EXPIRES: 'expires',
@@ -143,6 +144,7 @@ const expectedHeaderNames = {
   HTTP2_HEADER_PREFER: 'prefer',
   HTTP2_HEADER_PROXY_AUTHENTICATE: 'proxy-authenticate',
   HTTP2_HEADER_PROXY_AUTHORIZATION: 'proxy-authorization',
+  HTTP2_HEADER_PROXY_CONNECTION: 'proxy-connection',
   HTTP2_HEADER_RANGE: 'range',
   HTTP2_HEADER_REFERER: 'referer',
   HTTP2_HEADER_REFRESH: 'refresh',
@@ -154,7 +156,12 @@ const expectedHeaderNames = {
   HTTP2_HEADER_USER_AGENT: 'user-agent',
   HTTP2_HEADER_VARY: 'vary',
   HTTP2_HEADER_VIA: 'via',
-  HTTP2_HEADER_WWW_AUTHENTICATE: 'www-authenticate'
+  HTTP2_HEADER_WWW_AUTHENTICATE: 'www-authenticate',
+  HTTP2_HEADER_KEEP_ALIVE: 'keep-alive',
+  HTTP2_HEADER_CONTENT_MD5: 'content-md5',
+  HTTP2_HEADER_TE: 'te',
+  HTTP2_HEADER_UPGRADE: 'upgrade',
+  HTTP2_HEADER_HTTP2_SETTINGS: 'http2-settings'
 };
 
 const expectedNGConstants = {

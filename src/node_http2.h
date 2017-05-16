@@ -31,11 +31,13 @@ using v8::MaybeLocal;
   V(ALLOW, "allow")                                                           \
   V(AUTHORIZATION, "authorization")                                           \
   V(CACHE_CONTROL, "cache-control")                                           \
+  V(CONNECTION, "connection")                                                 \
   V(CONTENT_DISPOSITION, "content-disposition")                               \
   V(CONTENT_ENCODING, "content-encoding")                                     \
   V(CONTENT_LANGUAGE, "content-language")                                     \
   V(CONTENT_LENGTH, "content-length")                                         \
   V(CONTENT_LOCATION, "content-location")                                     \
+  V(CONTENT_MD5, "content-md5")                                               \
   V(CONTENT_RANGE, "content-range")                                           \
   V(CONTENT_TYPE, "content-type")                                             \
   V(COOKIE, "cookie")                                                         \
@@ -65,10 +67,15 @@ using v8::MaybeLocal;
   V(SET_COOKIE, "set-cookie")                                                 \
   V(STRICT_TRANSPORT_SECURITY, "strict-transport-security")                   \
   V(TRANSFER_ENCODING, "transfer-encoding")                                   \
+  V(TE, "te")                                                                 \
+  V(UPGRADE, "upgrade")                                                       \
   V(USER_AGENT, "user-agent")                                                 \
   V(VARY, "vary")                                                             \
   V(VIA, "via")                                                               \
-  V(WWW_AUTHENTICATE, "www-authenticate")
+  V(WWW_AUTHENTICATE, "www-authenticate")                                     \
+  V(HTTP2_SETTINGS, "http2-settings")                                         \
+  V(KEEP_ALIVE, "keep-alive")                                                 \
+  V(PROXY_CONNECTION, "proxy-connection")
 
 enum http_known_headers {
 HTTP_KNOWN_HEADER_MIN,
