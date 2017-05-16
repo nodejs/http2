@@ -43,9 +43,6 @@ server.listen(0, common.mustCall(function() {
       response.setHeader(':status', 'foobar');
     }, Error);
     assert.throws(function() {
-      response.setHeader('connection', 'foobar');
-    }, Error);
-    assert.throws(function() {
       response.setHeader(real, null);
     }, TypeError);
     assert.throws(function() {
