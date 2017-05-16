@@ -50,8 +50,7 @@ function verifySecureSession(key, cert, ca, opts) {
       req.on('end', common.mustCall(() => {
         const jsonData = JSON.parse(data);
         assert.strictEqual(jsonData.servername, opts.servername || 'localhost');
-        assert(
-            jsonData.alpnProtocol === 'h2' || jsonData.alpnProtocol === 'hc');
+        assert.strictEqual(jsonData.alpnProtocol, 'h2');
         server.close();
         client.socket.destroy();
       }));
@@ -65,7 +64,6 @@ verifySecureSession(
     loadKey('agent8-key.pem'),
     loadKey('agent8-cert.pem'),
     loadKey('fake-startcom-root-cert.pem'));
-
 
 // Custom servername is specified.
 verifySecureSession(
