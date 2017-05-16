@@ -1,11 +1,11 @@
 'use strict';
 
-const { fixturesDir, mustCall } = require('../common');
+const { fixturesDir, mustCall, mustNotCall } = require('../common');
 const { strictEqual } = require('assert');
 const { join } = require('path');
 const { readFileSync } = require('fs');
 const { createSecureContext } = require('tls');
-const { createSecureServer } = require('http2');
+const { createSecureServer, connect } = require('http2');
 const { get } = require('https');
 const { parse } = require('url');
 
@@ -18,35 +18,103 @@ function loadKey(keyname) {
     join(fixturesDir, 'keys', keyname), 'binary');
 }
 
-const server = createSecureServer(
-  { cert, key },
-  mustCall((request, response) => {
-    response.writeHead(200, 'OK', { 'content-type': 'application/json' });
-    response.end(JSON.stringify({ alpnProtocol: request.socket.alpnProtocol }));
-  })
-);
-
-server.listen(0);
-
-server.on('listening', mustCall(() => {
-  const clientOptions = Object.assign(
-    { secureContext: createSecureContext({ ca }) },
-    parse(`https://localhost:${server.address().port}`)
+// HTTP/2 & HTTP/1.1 server
+{
+  const server = createSecureServer(
+    { cert, key },
+    mustCall((request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({
+        alpnProtocol: request.socket.alpnProtocol,
+        httpVersion: request.httpVersion
+      }));
+    }, 2)
   );
 
-  get(clientOptions, (response) => {
-    strictEqual(response.statusCode, 200);
-    strictEqual(response.statusMessage, 'OK');
-    strictEqual(response.headers['content-type'], 'application/json');
+  server.listen(0);
 
-    response.setEncoding('utf8');
-    let raw = '';
-    response.on('data', (chunk) => { raw += chunk; });
-    response.on('end', mustCall(() => {
-      const data = JSON.parse(raw);
-      strictEqual(data.alpnProtocol, false);
+  server.on('listening', mustCall(() => {
+    const port = server.address().port;
+    const origin = `https://localhost:${port}`;
+    const clientOptions = { secureContext: createSecureContext({ ca }) };
 
-      server.close();
-    }));
-  });
-}));
+    let count = 2;
+
+    // HTTP/2 client
+    connect(
+      origin,
+      { secureContext: createSecureContext({ ca }) },
+      mustCall((session) => {
+        const headers = {
+          ':path': '/',
+          ':method': 'GET',
+          ':scheme': 'https',
+          ':authority': `localhost:${port}`
+        };
+
+        const request = session.request(headers);
+        request.on('response', mustCall((headers) => {
+          strictEqual(headers[':status'], '200');
+          strictEqual(headers['content-type'], 'application/json');
+        }));
+        request.setEncoding('utf8');
+        let raw = '';
+        request.on('data', (chunk) => { raw += chunk; });
+        request.on('end', mustCall(() => {
+          const data = JSON.parse(raw);
+          strictEqual(data.alpnProtocol, 'h2');
+          strictEqual(data.httpVersion, '2.0');
+
+          session.destroy();
+          if (--count === 0) server.close();
+        }));
+        request.end();
+      })
+    );
+
+    // HTTP/1.1 client
+    get(
+      Object.assign(parse(origin), clientOptions),
+      mustCall((response) => {
+        strictEqual(response.statusCode, 200);
+        strictEqual(response.statusMessage, 'OK');
+        strictEqual(response.headers['content-type'], 'application/json');
+
+        response.setEncoding('utf8');
+        let raw = '';
+        response.on('data', (chunk) => { raw += chunk; });
+        response.on('end', mustCall(() => {
+          const data = JSON.parse(raw);
+          strictEqual(data.alpnProtocol, false);
+          strictEqual(data.httpVersion, '1.1');
+
+          if (--count === 0) server.close();
+        }));
+      })
+    );
+  }));
+}
+
+// HTTP/2-only server
+{
+  const server = createSecureServer({ cert, key, allowHTTP1: false });
+
+  server.listen(0);
+
+  server.on('listening', mustCall(() => {
+    const port = server.address().port;
+    const origin = `https://localhost:${port}`;
+    const clientOptions = { secureContext: createSecureContext({ ca }) };
+
+    // HTTP/2 client
+    connect(
+      origin,
+      { secureContext: createSecureContext({ ca }) },
+      mustCall((session) => { session.destroy(); })
+    );
+
+    // HTTP/1.1 client
+    get(Object.assign(parse(origin), clientOptions), mustNotCall())
+      .on('error', mustCall(server.close.bind(server)));
+  }));
+}
