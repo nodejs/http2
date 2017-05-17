@@ -101,10 +101,6 @@ connected to the remote peer and communication may begin.
 
 (TODO: fill in detail)
 
-#### Event: 'selectPadding'
-
-(TODO: fill in detail)
-
 #### Event: 'stream'
 
 The `'stream'` event is emitted when a new `Http2Stream` is created. When
@@ -498,11 +494,6 @@ Initiates a response.
 
 * Extends: {net.Server}
 
-#### Event: 'selectPadding'
-
-The `'selectPadding'` event is emitted when a `'selectPadding'` event is
-emitted by an `'Http2Session`' object associated with the server.
-
 #### Event: 'sessionError'
 
 The `'sessionError'` event is emitted when an `'error'` event is emitted by
@@ -527,11 +518,6 @@ an `Http2Session` associated with the server.
 ### Class: Http2SecureServer
 
 * Extends: {tls.Server}
-
-#### Event: 'selectPadding'
-
-The `'selectPadding'` event is emitted when a `'selectPadding'` event is
-emitted by an `'Http2Session`' object associated with the server.
 
 #### Event: 'sessionError'
 
@@ -589,8 +575,21 @@ console.log(packed.toString('base64'));
   * `maxSendHeaderBlockLength` {number} (TODO: Add detail)
   * `noHttpMessaging` {boolean} (TODO: Add detail)
   * `noRecvClientMagic` {boolean} (TODO: Add detail)
-  * `paddingStrategy` {number} (TODO: Add detail)
+  * `paddingStrategy` {number} Identifies the strategy used for determining the
+     amount of padding to use for HEADERS and DATA frames. Defaults to
+     `http2.constants.PADDING_STRATEGY_NONE`. Value may be one of:
+     * `http2.constants.PADDING_STRATEGY_NONE` - Specifies that no padding is
+       to be applied.
+     * `http2.constants.PADDING_STRATEGY_MAX` - Specifies that the maximum
+       amount of padding, as determined by the internal implementation, is to
+       be applied.
+     * `http2.constants.PADDING_STRATEGY_CALLBACK` - Specifies that the user
+       provided `options.selectPadding` callback is to be used to determine the
+       amount of padding.
   * `peerMaxConcurrentStreams` {number} (TODO: Add detail)
+  * `selectPadding` {Function} When `options.paddingStrategy` is equal to
+    `http2.constants.PADDING_STRATEGY_CALLBACK`, provides the callback function
+    used to determine the padding. See [Using options.selectPadding][].
   * `settings` {[Settings Object][]} The initial settings to send to the
     remote peer upon connection.
 * `onRequestHandler` {Function} See [Compatibility API][]
@@ -619,16 +618,29 @@ server.listen(80);
 ### http2.createSecureServer(options[, onRequestHandler])
 
 * `options` {Object}
+  * `allowHTTP1` {boolean} Incoming client connections that do not support
+    HTTP/2 will be downgraded to HTTP/1.x when set to `true`. The default value
+    is `false`, which rejects non-HTTP/2 client connections.
   * `maxDefaultDynamicTableSize` {number} (TODO: Add detail)
   * `maxReservedRemoteStreams` {number} (TODO: Add detail)
   * `maxSendHeaderBlockLength` {number} (TODO: Add detail)
   * `noHttpMessaging` {boolean} (TODO: Add detail)
   * `noRecvClientMagic` {boolean} (TODO: Add detail)
-  * `paddingStrategy` {number} (TODO: Add detail)
+  * `paddingStrategy` {number} Identifies the strategy used for determining the
+     amount of padding to use for HEADERS and DATA frames. Defaults to
+     `http2.constants.PADDING_STRATEGY_NONE`. Value may be one of:
+     * `http2.constants.PADDING_STRATEGY_NONE` - Specifies that no padding is
+       to be applied.
+     * `http2.constants.PADDING_STRATEGY_MAX` - Specifies that the maximum
+       amount of padding, as determined by the internal implementation, is to
+       be applied.
+     * `http2.constants.PADDING_STRATEGY_CALLBACK` - Specifies that the user
+       provided `options.selectPadding` callback is to be used to determine the
+       amount of padding.
   * `peerMaxConcurrentStreams` {number} (TODO: Add detail)
-  * `allowHTTP1` {boolean} Incoming client connections that do not support
-    HTTP/2 will be downgraded to HTTP/1.x when set to `true`. The default value
-    is `false`, which rejects non-HTTP/2 client connections.
+  * `selectPadding` {Function} When `options.paddingStrategy` is equal to
+    `http2.constants.PADDING_STRATEGY_CALLBACK`, provides the callback function
+    used to determine the padding. See [Using options.selectPadding][].
   * `settings` {[Settings Object][]} The initial settings to send to the
     remote peer upon connection.
   * ...: Any [`tls.createServer()`][] options can be provided. For
@@ -663,6 +675,31 @@ server.listen(80);
 
 ### http2.connect(authority, options, listener)
 
+* `authority` {string|URL}
+* `options` {Object}
+  * `maxDefaultDynamicTableSize` {number} (TODO: Add detail)
+  * `maxReservedRemoteStreams` {number} (TODO: Add detail)
+  * `maxSendHeaderBlockLength` {number} (TODO: Add detail)
+  * `noHttpMessaging` {boolean} (TODO: Add detail)
+  * `noRecvClientMagic` {boolean} (TODO: Add detail)
+  * `paddingStrategy` {number} Identifies the strategy used for determining the
+     amount of padding to use for HEADERS and DATA frames. Defaults to
+     `http2.constants.PADDING_STRATEGY_NONE`. Value may be one of:
+     * `http2.constants.PADDING_STRATEGY_NONE` - Specifies that no padding is
+       to be applied.
+     * `http2.constants.PADDING_STRATEGY_MAX` - Specifies that the maximum
+       amount of padding, as determined by the internal implementation, is to
+       be applied.
+     * `http2.constants.PADDING_STRATEGY_CALLBACK` - Specifies that the user
+       provided `options.selectPadding` callback is to be used to determine the
+       amount of padding.
+  * `peerMaxConcurrentStreams` {number} (TODO: Add detail)
+  * `selectPadding` {Function} When `options.paddingStrategy` is equal to
+    `http2.constants.PADDING_STRATEGY_CALLBACK`, provides the callback function
+    used to determine the padding. See [Using options.selectPadding][].
+  * `settings` {[Settings Object][]} The initial settings to send to the
+    remote peer upon connection.
+* `listener` {Function}
 * Returns `Http2Session`
 
 Returns a HTTP/2 client `Http2Session` instance.
@@ -730,6 +767,31 @@ properties.
 
 All additional properties on the settings object are ignored.
 
+### Using `options.selectPadding`
+
+When `options.paddingStrategy` is equal to
+`http2.constants.PADDING_STRATEGY_CALLBACK`, the the HTTP/2 implementation will
+consult the `options.selectPadding` callback function, if provided, to determine
+the specific amount of padding to use per HEADERS and DATA frame.
+
+The `options.selectPadding` function receives two numeric arguments,
+`frameLen` and `maxFrameLen` and must return a number `N` such that
+`frameLen <= N <= maxFrameLen`.
+
+```js
+const http2 = require('http2');
+const server = http2.createServer({
+  paddingStrategy: http2.constants.PADDING_STRATEGY_CALLBACK,
+  selectPadding(frameLen, maxFrameLen) {
+    return maxFrameLen;
+  }
+});
+```
+
+*Note*: The `options.selectPadding` function is invoked once for *every*
+HEADERS and DATA frame. This has a definite noticeable impact on
+performance.
+
 ## Compatibility API
 
 TBD
@@ -744,3 +806,4 @@ TBD
 [Headers Object]: #http2_headers_object
 [Settings Object]: #http2_settings_object
 [Http2Session and Sockets]: #http2_http2sesion_and_sockets
+[Using options.selectPadding]: #http2_using_options_selectpadding
