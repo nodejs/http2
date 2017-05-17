@@ -22,6 +22,10 @@ server.listen(0, common.mustCall(function() {
     assert.strictEqual(request.httpVersionMajor, expected.httpVersionMajor);
     assert.strictEqual(request.httpVersionMinor, expected.httpVersionMinor);
 
+    assert.ok(request.socket);
+    assert.ok(request.connection);
+    assert.strictEqual(request.socket, request.connection);
+
     response.stream.on('finish', common.mustCall(function() {
       server.close();
     }));
