@@ -99,7 +99,8 @@ connected to the remote peer and communication may begin.
 
 #### Event: 'error'
 
-(TODO: fill in detail)
+The `'error'` event is emitted when an error occurs during the processing of
+an `Http2Session`.
 
 #### Event: 'stream'
 
@@ -109,8 +110,23 @@ object, a [Headers Object][], and numeric flags associated with the creation
 of the stream.
 
 ```js
+const http2 = require('http2');
+const {
+  HTTP2_HEADER_METHOD,
+  HTTP2_HEADER_PATH,
+  HTTP2_HEADER_STATUS,
+  HTTP2_HEADER_CONTENT_TYPE
+} = http2.constants;
 session.on('stream', (stream, headers, flags) => {
-  // TODO(jasnell): Fill in example
+  const method = headers[HTTP2_HEADER_METHOD];
+  const path = headers[HTTP2_HEADER_PATH];
+  // ...
+  stream.respond({
+    [HTTP2_HEADER_STATUS]: 200,
+    [HTTP2_HEADER_CONTENT_TYPE]: 'text/plain'
+  });
+  stream.write('hello ');
+  stream.end('world');
 });
 ```
 
@@ -162,15 +178,15 @@ longer be used, otherwise `false`.
 
 * Value: {[Settings Object][]}
 
-An object describing the current local settings of this `Http2Session`.
-(TODO: fill in detail)
+An object describing the current local settings of this `Http2Session`. The
+local settings are local to *this* `Http2Session` instance.
 
 #### http2session.remoteSettings
 
 * Value: {[Settings Object][]}
 
-An object describing the current remote settings of this `Http2Session`.
-(TODO: fill in detail)
+An object describing the current remote settings of this `Http2Session`. The
+remote settings are set by the *connected* HTTP/2 peer.
 
 #### http2session.request(headers[, options])
 
@@ -179,9 +195,15 @@ An object describing the current remote settings of this `Http2Session`.
   * `endStream` {boolean} `true` if the `Http2Stream` *writable* side should
     be closed initially, such as when sending a `GET` request that should not
     expect a payload body.
-  * `exclusive` {boolean} (TODO: fill in detail)
-  * `parent` {number} (TODO: fill in detail)
-  * `weight` {number} (TODO: fill in detail)
+  * `exclusive` {boolean} When `true` and `parent` identifies a parent Stream,
+    the created stream is made the sole direct dependency of the parent, with
+    all other existing dependents made a dependent of the newly created stream.
+    Defaults to `false`.
+  * `parent` {number} Specifies the numeric identifier of a stream the newly
+    created stream is dependent on.
+  * `weight` {number} Specifies the relative dependency of a stream in relation
+    to other streams with the same `parent`. The value is a number between `1`
+    and `256` (inclusive).
 
 For HTTP/2 Client `Http2Session` instances only, the `http2session.request()`
 creates and returns an `Http2Stream` instance that can be used to send an
@@ -257,9 +279,15 @@ An object describing the current status of this `Http2Session`.
 
 * `stream` {Http2Stream}
 * `options` {Object}
-  * `exclusive` {boolean} (TODO: fill in detail)
-  * `parent` {number} (TODO: fill in detail)
-  * `weight` {number} (TODO: fill in detail)
+  * `exclusive` {boolean} When `true` and `parent` identifies a parent Stream,
+    the given stream is made the sole direct dependency of the parent, with
+    all other existing dependents made a dependent of the given stream. Defaults
+    to `false`.
+  * `parent` {number} Specifies the numeric identifier of a stream the given
+    stream is dependent on.
+  * `weight` {number} Specifies the relative dependency of a stream in relation
+    to other streams with the same `parent`. The value is a number between `1`
+    and `256` (inclusive).
 
 Updates the priority for the given `Http2Stream` instance. If `options.silent`
 is `false`, causes a new `PRIORITY` frame to be sent to the connected HTTP/2
@@ -399,9 +427,15 @@ stream.on('trailers', (headers, flags) => {
 #### http2stream.priority(options)
 
 * `options` {Object}
-  * `exclusive` {boolean} (TODO: fill in detail)
-  * `parent` {number} (TODO: fill in detail)
-  * `weight` {number} (TODO: fill in detail)
+  * `exclusive` {boolean} When `true` and `parent` identifies a parent Stream,
+    this stream is made the sole direct dependency of the parent, with
+    all other existing dependents made a dependent of this stream. Defaults
+    to `false`.
+  * `parent` {number} Specifies the numeric identifier of a stream this stream
+    is dependent on.
+  * `weight` {number} Specifies the relative dependency of a stream in relation
+    to other streams with the same `parent`. The value is a number between `1`
+    and `256` (inclusive).
 
 Updates the priority for this `Http2Stream` instance. If `options.silent`
 is `false`, causes a new `PRIORITY` frame to be sent to the connected HTTP/2
@@ -474,9 +508,15 @@ A current state of this `Http2Stream`.
 
 * `headers` {[Headers Object][]}
 * `options` {Object}
-  * `exclusive` {boolean} (TODO: fill in detail)
-  * `parent` {number} (TODO: fill in detail)
-  * `weight` {number} (TODO: fill in detail)
+  * `exclusive` {boolean} When `true` and `parent` identifies a parent Stream,
+    the created stream is made the sole direct dependency of the parent, with
+    all other existing dependents made a dependent of the newly created stream.
+    Defaults to `false`.
+  * `parent` {number} Specifies the numeric identifier of a stream the newly
+    created stream is dependent on.
+  * `weight` {number} Specifies the relative dependency of a stream in relation
+    to other streams with the same `parent`. The value is a number between `1`
+    and `256` (inclusive).
 * `callback` {Function}
 
 Initiates a push stream.
@@ -511,6 +551,29 @@ event, an `'error'` event is emitted.
 The `'stream'` event is emitted when a `'stream'` event has been emitted by
 an `Http2Session` associated with the server.
 
+```js
+const http2 = require('http2');
+const {
+  HTTP2_HEADER_METHOD,
+  HTTP2_HEADER_PATH,
+  HTTP2_HEADER_STATUS,
+  HTTP2_HEADER_CONTENT_TYPE
+} = http2.constants;
+
+const server = http.createServer();
+server.on('stream', (stream, headers, flags) => {
+  const method = headers[HTTP2_HEADER_METHOD];
+  const path = headers[HTTP2_HEADER_PATH];
+  // ...
+  stream.respond({
+    [HTTP2_HEADER_STATUS]: 200,
+    [HTTP2_HEADER_CONTENT_TYPE]: 'text/plain'
+  });
+  stream.write('hello ');
+  stream.end('world');
+});
+```
+
 #### Event: 'timeout'
 
 (TODO: fill in detail)
@@ -535,6 +598,31 @@ event, an `'error'` event is emitted.
 
 The `'stream'` event is emitted when a `'stream'` event has been emitted by
 an `Http2Session` associated with the server.
+
+```js
+const http2 = require('http2');
+const {
+  HTTP2_HEADER_METHOD,
+  HTTP2_HEADER_PATH,
+  HTTP2_HEADER_STATUS,
+  HTTP2_HEADER_CONTENT_TYPE
+} = http2.constants;
+
+const options = getOptionsSomehow();
+
+const server = http.createSecureServer(options);
+server.on('stream', (stream, headers, flags) => {
+  const method = headers[HTTP2_HEADER_METHOD];
+  const path = headers[HTTP2_HEADER_PATH];
+  // ...
+  stream.respond({
+    [HTTP2_HEADER_STATUS]: 200,
+    [HTTP2_HEADER_CONTENT_TYPE]: 'text/plain'
+  });
+  stream.write('hello ');
+  stream.end('world');
+});
+```
 
 #### Event: 'timeout'
 
