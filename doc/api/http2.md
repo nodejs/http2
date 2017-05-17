@@ -63,10 +63,6 @@ Instances of the `http2.Http2Session` class represent an active communications
 session between an HTTP/2 client and server. Instances of this class are *not*
 intended to be constructed directly by user code.
 
-Every `Http2Session` instance is associated with exactly one [`net.Socket`][] or
-[`tls.TLSSocket`][] when it is created. When either the `Socket` or the
-`Http2Session` are destroyed, both will be destroyed.
-
 Each `Http2Session` instance will exhibit slightly different behaviors
 depending on whether it is operating as a server or a client. The
 `http2session.type` property can be used to determine the mode in which an
@@ -74,6 +70,21 @@ depending on whether it is operating as a server or a client. The
 have occasion to work with the `Http2Session` object directly, with most
 actions typically taken through interactions with either the `Http2Server` or
 `Http2Stream` objects.
+
+#### Http2Stream and Sockets
+
+Every `Http2Session` instance is associated with exactly one [`net.Socket`][] or
+[`tls.TLSSocket`][] when it is created. When either the `Socket` or the
+`Http2Session` are destroyed, both will be destroyed.
+
+Because the of the specific serialization and processing requirements imposed
+by the HTTP/2 protocol, it is not recommended for user code to read data from
+or write data to a `Socket` instance bound to a `Http2Session`. Doing so can
+put the HTTP/2 session into an indeterminate state causing the session and
+the socket to become unusable.
+
+Once a `Socket` has been bound to an `Http2Session`, user code should rely
+solely on the API of the `Http2Session`.
 
 #### Event: 'close'
 
@@ -226,6 +237,10 @@ process has completed.
 
 A reference to the [`net.Socket`][] or [`tls.TLSSocket`][] to which this
 `Http2Session` instance is bound.
+
+*Note*: It is not recommended for user code to interact directly with a
+`Socket` bound to an `Http2Session`. See [Http2Session and Sockets][] for
+details.
 
 #### http2session.state
 
@@ -728,3 +743,4 @@ TBD
 [Compatibility API: #http2_compatibility_api
 [Headers Object]: #http2_headers_object
 [Settings Object]: #http2_settings_object
+[Http2Session and Sockets]: #http2_http2sesion_and_sockets
