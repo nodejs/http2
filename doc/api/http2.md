@@ -242,7 +242,7 @@ A reference to the [`net.Socket`][] or [`tls.TLSSocket`][] to which this
 
 An object describing the current status of this `Http2Session`.
 
-#### http2session.submitPriority(stream, options)
+#### http2session.priority(stream, options)
 
 * `stream` {Http2Stream}
 * `options` {Object}
@@ -254,7 +254,7 @@ Updates the priority for the given `Http2Stream` instance. If `options.silent`
 is `false`, causes a new `PRIORITY` frame to be sent to the connected HTTP/2
 peer.
 
-#### http2session.submitSettings(settings)
+#### http2session.settings(settings)
 
 * `settings` {[Settings Object][]}
 * Returns {undefined}
@@ -687,7 +687,7 @@ not work.
 
 The `http2.getDefaultSettings()`, `http2.getPackedSettings()`,
 `http2.createServer()`, `http2.createSecureServer()`,
-`http2session.submitSettings()`, `http2session.localSettings`, and
+`http2session.settings()`, `http2session.localSettings`, and
 `http2session.remoteSettings` APIs either return or receive as input an
 object that defines configuration settings for an `Http2Session` object.
 These objects are ordinary JavaScript objects containing the following
