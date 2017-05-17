@@ -22,11 +22,11 @@ server.listen(0, common.mustCall(function() {
 
   let res = '';
 
-  req.on('response', (headers) => {
+  req.on('response', common.mustCall(function(headers) {
     assert.strictEqual(200, headers[':status']);
-  });
+  }));
 
-  req.on('data', function(chunk) {
+  req.on('data', (chunk) => {
     res += chunk;
   });
 
