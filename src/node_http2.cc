@@ -491,7 +491,7 @@ void Http2Session::ShutdownStream(const FunctionCallbackInfo<Value>& args) {
   if (!(stream_handle = session->FindStream(args[0]->Int32Value()))) {
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
-  args.GetReturnValue().Set(stream_handle->Shutdown());
+  stream_handle->Shutdown();
 }
 
 
@@ -504,7 +504,6 @@ void Http2Session::StreamReadStart(const FunctionCallbackInfo<Value>& args) {
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
   stream_handle->ReadStart();
-  args.GetReturnValue().Set(0);
 }
 
 
@@ -517,7 +516,6 @@ void Http2Session::StreamReadStop(const FunctionCallbackInfo<Value>& args) {
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
   stream_handle->ReadStop();
-  args.GetReturnValue().Set(0);
 }
 
 
@@ -1206,6 +1204,10 @@ void Initialize(Local<Object> target,
   NODE_DEFINE_CONSTANT(constants, NGHTTP2_NV_FLAG_NONE);
   NODE_DEFINE_CONSTANT(constants, NGHTTP2_NV_FLAG_NO_INDEX);
   NODE_DEFINE_CONSTANT(constants, NGHTTP2_ERR_DEFERRED);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_ERR_NOMEM);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_ERR_STREAM_ID_NOT_AVAILABLE);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_ERR_INVALID_ARGUMENT);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_ERR_STREAM_CLOSED);
 
   NODE_DEFINE_CONSTANT(constants, NGHTTP2_FLAG_NONE);
   NODE_DEFINE_CONSTANT(constants, NGHTTP2_FLAG_END_STREAM);
