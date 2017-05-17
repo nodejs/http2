@@ -3,6 +3,7 @@
 const common = require('../common');
 const assert = require('assert');
 const h2 = require('http2');
+const net = require('net');
 
 // Http2ServerRequest should expose convenience properties
 
@@ -22,8 +23,8 @@ server.listen(0, common.mustCall(function() {
     assert.strictEqual(request.httpVersionMajor, expected.httpVersionMajor);
     assert.strictEqual(request.httpVersionMinor, expected.httpVersionMinor);
 
-    assert.ok(request.socket);
-    assert.ok(request.connection);
+    assert.ok(request.socket instanceof net.Socket);
+    assert.ok(request.connection instanceof net.Socket);
     assert.strictEqual(request.socket, request.connection);
 
     response.stream.on('finish', common.mustCall(function() {
