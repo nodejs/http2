@@ -22,9 +22,11 @@ const ca = loadKey('fake-startcom-root-cert.pem');
 const clientOptions = { secureContext: createSecureContext({ ca }) };
 
 function onRequest(request, response) {
+  const { socket: { alpnProtocol } } = request.httpVersion === '2.0' ?
+    request.stream.session : request;
   response.writeHead(200, { 'content-type': 'application/json' });
   response.end(JSON.stringify({
-    alpnProtocol: request.socket.alpnProtocol,
+    alpnProtocol,
     httpVersion: request.httpVersion
   }));
 }
@@ -59,7 +61,7 @@ function onSession(session) {
 // HTTP/2 & HTTP/1.1 server
 {
   const server = createSecureServer(
-    { cert, key },
+    { cert, key, allowHTTP1: true },
     mustCall(onRequest, 2)
   );
 
@@ -104,7 +106,7 @@ function onSession(session) {
 // HTTP/2-only server
 {
   const server = createSecureServer(
-    { cert, key, allowHTTP1: false },
+    { cert, key },
     mustCall(onRequest)
   );
 
