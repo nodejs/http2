@@ -63,10 +63,6 @@ Instances of the `http2.Http2Session` class represent an active communications
 session between an HTTP/2 client and server. Instances of this class are *not*
 intended to be constructed directly by user code.
 
-Every `Http2Session` instance is associated with exactly one [`net.Socket`][] or
-[`tls.TLSSocket`][] when it is created. When either the `Socket` or the
-`Http2Session` are destroyed, both will be destroyed.
-
 Each `Http2Session` instance will exhibit slightly different behaviors
 depending on whether it is operating as a server or a client. The
 `http2session.type` property can be used to determine the mode in which an
@@ -74,6 +70,21 @@ depending on whether it is operating as a server or a client. The
 have occasion to work with the `Http2Session` object directly, with most
 actions typically taken through interactions with either the `Http2Server` or
 `Http2Stream` objects.
+
+#### Http2Stream and Sockets
+
+Every `Http2Session` instance is associated with exactly one [`net.Socket`][] or
+[`tls.TLSSocket`][] when it is created. When either the `Socket` or the
+`Http2Session` are destroyed, both will be destroyed.
+
+Because the of the specific serialization and processing requirements imposed
+by the HTTP/2 protocol, it is not recommended for user code to read data from
+or write data to a `Socket` instance bound to a `Http2Session`. Doing so can
+put the HTTP/2 session into an indeterminate state causing the session and
+the socket to become unusable.
+
+Once a `Socket` has been bound to an `Http2Session`, user code should rely
+solely on the API of the `Http2Session`.
 
 #### Event: 'close'
 
@@ -88,11 +99,8 @@ connected to the remote peer and communication may begin.
 
 #### Event: 'error'
 
-(TODO: fill in detail)
-
-#### Event: 'selectPadding'
-
-(TODO: fill in detail)
+The `'error'` event is emitted when an error occurs during the processing of
+an `Http2Session`.
 
 #### Event: 'stream'
 
@@ -102,8 +110,23 @@ object, a [Headers Object][], and numeric flags associated with the creation
 of the stream.
 
 ```js
+const http2 = require('http2');
+const {
+  HTTP2_HEADER_METHOD,
+  HTTP2_HEADER_PATH,
+  HTTP2_HEADER_STATUS,
+  HTTP2_HEADER_CONTENT_TYPE
+} = http2.constants;
 session.on('stream', (stream, headers, flags) => {
-  // TODO(jasnell): Fill in example
+  const method = headers[HTTP2_HEADER_METHOD];
+  const path = headers[HTTP2_HEADER_PATH];
+  // ...
+  stream.respond({
+    [HTTP2_HEADER_STATUS]: 200,
+    [HTTP2_HEADER_CONTENT_TYPE]: 'text/plain'
+  });
+  stream.write('hello ');
+  stream.end('world');
 });
 ```
 
@@ -155,15 +178,15 @@ longer be used, otherwise `false`.
 
 * Value: {[Settings Object][]}
 
-An object describing the current local settings of this `Http2Session`.
-(TODO: fill in detail)
+An object describing the current local settings of this `Http2Session`. The
+local settings are local to *this* `Http2Session` instance.
 
 #### http2session.remoteSettings
 
 * Value: {[Settings Object][]}
 
-An object describing the current remote settings of this `Http2Session`.
-(TODO: fill in detail)
+An object describing the current remote settings of this `Http2Session`. The
+remote settings are set by the *connected* HTTP/2 peer.
 
 #### http2session.request(headers[, options])
 
@@ -172,9 +195,15 @@ An object describing the current remote settings of this `Http2Session`.
   * `endStream` {boolean} `true` if the `Http2Stream` *writable* side should
     be closed initially, such as when sending a `GET` request that should not
     expect a payload body.
-  * `exclusive` {boolean} (TODO: fill in detail)
-  * `parent` {number} (TODO: fill in detail)
-  * `weight` {number} (TODO: fill in detail)
+  * `exclusive` {boolean} When `true` and `parent` identifies a parent Stream,
+    the created stream is made the sole direct dependency of the parent, with
+    all other existing dependents made a dependent of the newly created stream.
+    Defaults to `false`.
+  * `parent` {number} Specifies the numeric identifier of a stream the newly
+    created stream is dependent on.
+  * `weight` {number} Specifies the relative dependency of a stream in relation
+    to other streams with the same `parent`. The value is a number between `1`
+    and `256` (inclusive).
 
 For HTTP/2 Client `Http2Session` instances only, the `http2session.request()`
 creates and returns an `Http2Stream` instance that can be used to send an
@@ -227,6 +256,10 @@ process has completed.
 A reference to the [`net.Socket`][] or [`tls.TLSSocket`][] to which this
 `Http2Session` instance is bound.
 
+*Note*: It is not recommended for user code to interact directly with a
+`Socket` bound to an `Http2Session`. See [Http2Session and Sockets][] for
+details.
+
 #### http2session.state
 
 * Value: {Object}
@@ -242,19 +275,25 @@ A reference to the [`net.Socket`][] or [`tls.TLSSocket`][] to which this
 
 An object describing the current status of this `Http2Session`.
 
-#### http2session.submitPriority(stream, options)
+#### http2session.priority(stream, options)
 
 * `stream` {Http2Stream}
 * `options` {Object}
-  * `exclusive` {boolean} (TODO: fill in detail)
-  * `parent` {number} (TODO: fill in detail)
-  * `weight` {number} (TODO: fill in detail)
+  * `exclusive` {boolean} When `true` and `parent` identifies a parent Stream,
+    the given stream is made the sole direct dependency of the parent, with
+    all other existing dependents made a dependent of the given stream. Defaults
+    to `false`.
+  * `parent` {number} Specifies the numeric identifier of a stream the given
+    stream is dependent on.
+  * `weight` {number} Specifies the relative dependency of a stream in relation
+    to other streams with the same `parent`. The value is a number between `1`
+    and `256` (inclusive).
 
 Updates the priority for the given `Http2Stream` instance. If `options.silent`
 is `false`, causes a new `PRIORITY` frame to be sent to the connected HTTP/2
 peer.
 
-#### http2session.submitSettings(settings)
+#### http2session.settings(settings)
 
 * `settings` {[Settings Object][]}
 * Returns {undefined}
@@ -388,9 +427,15 @@ stream.on('trailers', (headers, flags) => {
 #### http2stream.priority(options)
 
 * `options` {Object}
-  * `exclusive` {boolean} (TODO: fill in detail)
-  * `parent` {number} (TODO: fill in detail)
-  * `weight` {number} (TODO: fill in detail)
+  * `exclusive` {boolean} When `true` and `parent` identifies a parent Stream,
+    this stream is made the sole direct dependency of the parent, with
+    all other existing dependents made a dependent of this stream. Defaults
+    to `false`.
+  * `parent` {number} Specifies the numeric identifier of a stream this stream
+    is dependent on.
+  * `weight` {number} Specifies the relative dependency of a stream in relation
+    to other streams with the same `parent`. The value is a number between `1`
+    and `256` (inclusive).
 
 Updates the priority for this `Http2Stream` instance. If `options.silent`
 is `false`, causes a new `PRIORITY` frame to be sent to the connected HTTP/2
@@ -463,9 +508,15 @@ A current state of this `Http2Stream`.
 
 * `headers` {[Headers Object][]}
 * `options` {Object}
-  * `exclusive` {boolean} (TODO: fill in detail)
-  * `parent` {number} (TODO: fill in detail)
-  * `weight` {number} (TODO: fill in detail)
+  * `exclusive` {boolean} When `true` and `parent` identifies a parent Stream,
+    the created stream is made the sole direct dependency of the parent, with
+    all other existing dependents made a dependent of the newly created stream.
+    Defaults to `false`.
+  * `parent` {number} Specifies the numeric identifier of a stream the newly
+    created stream is dependent on.
+  * `weight` {number} Specifies the relative dependency of a stream in relation
+    to other streams with the same `parent`. The value is a number between `1`
+    and `256` (inclusive).
 * `callback` {Function}
 
 Initiates a push stream.
@@ -483,11 +534,6 @@ Initiates a response.
 
 * Extends: {net.Server}
 
-#### Event: 'selectPadding'
-
-The `'selectPadding'` event is emitted when a `'selectPadding'` event is
-emitted by an `'Http2Session`' object associated with the server.
-
 #### Event: 'sessionError'
 
 The `'sessionError'` event is emitted when an `'error'` event is emitted by
@@ -504,6 +550,29 @@ event, an `'error'` event is emitted.
 
 The `'stream'` event is emitted when a `'stream'` event has been emitted by
 an `Http2Session` associated with the server.
+
+```js
+const http2 = require('http2');
+const {
+  HTTP2_HEADER_METHOD,
+  HTTP2_HEADER_PATH,
+  HTTP2_HEADER_STATUS,
+  HTTP2_HEADER_CONTENT_TYPE
+} = http2.constants;
+
+const server = http.createServer();
+server.on('stream', (stream, headers, flags) => {
+  const method = headers[HTTP2_HEADER_METHOD];
+  const path = headers[HTTP2_HEADER_PATH];
+  // ...
+  stream.respond({
+    [HTTP2_HEADER_STATUS]: 200,
+    [HTTP2_HEADER_CONTENT_TYPE]: 'text/plain'
+  });
+  stream.write('hello ');
+  stream.end('world');
+});
+```
 
 #### Event: 'timeout'
 
@@ -513,11 +582,6 @@ an `Http2Session` associated with the server.
 
 * Extends: {tls.Server}
 
-#### Event: 'selectPadding'
-
-The `'selectPadding'` event is emitted when a `'selectPadding'` event is
-emitted by an `'Http2Session`' object associated with the server.
-
 #### Event: 'sessionError'
 
 The `'sessionError'` event is emitted when an `'error'` event is emitted by
@@ -534,6 +598,31 @@ event, an `'error'` event is emitted.
 
 The `'stream'` event is emitted when a `'stream'` event has been emitted by
 an `Http2Session` associated with the server.
+
+```js
+const http2 = require('http2');
+const {
+  HTTP2_HEADER_METHOD,
+  HTTP2_HEADER_PATH,
+  HTTP2_HEADER_STATUS,
+  HTTP2_HEADER_CONTENT_TYPE
+} = http2.constants;
+
+const options = getOptionsSomehow();
+
+const server = http.createSecureServer(options);
+server.on('stream', (stream, headers, flags) => {
+  const method = headers[HTTP2_HEADER_METHOD];
+  const path = headers[HTTP2_HEADER_PATH];
+  // ...
+  stream.respond({
+    [HTTP2_HEADER_STATUS]: 200,
+    [HTTP2_HEADER_CONTENT_TYPE]: 'text/plain'
+  });
+  stream.write('hello ');
+  stream.end('world');
+});
+```
 
 #### Event: 'timeout'
 
@@ -574,8 +663,21 @@ console.log(packed.toString('base64'));
   * `maxSendHeaderBlockLength` {number} (TODO: Add detail)
   * `noHttpMessaging` {boolean} (TODO: Add detail)
   * `noRecvClientMagic` {boolean} (TODO: Add detail)
-  * `paddingStrategy` {number} (TODO: Add detail)
+  * `paddingStrategy` {number} Identifies the strategy used for determining the
+     amount of padding to use for HEADERS and DATA frames. Defaults to
+     `http2.constants.PADDING_STRATEGY_NONE`. Value may be one of:
+     * `http2.constants.PADDING_STRATEGY_NONE` - Specifies that no padding is
+       to be applied.
+     * `http2.constants.PADDING_STRATEGY_MAX` - Specifies that the maximum
+       amount of padding, as determined by the internal implementation, is to
+       be applied.
+     * `http2.constants.PADDING_STRATEGY_CALLBACK` - Specifies that the user
+       provided `options.selectPadding` callback is to be used to determine the
+       amount of padding.
   * `peerMaxConcurrentStreams` {number} (TODO: Add detail)
+  * `selectPadding` {Function} When `options.paddingStrategy` is equal to
+    `http2.constants.PADDING_STRATEGY_CALLBACK`, provides the callback function
+    used to determine the padding. See [Using options.selectPadding][].
   * `settings` {[Settings Object][]} The initial settings to send to the
     remote peer upon connection.
 * `onRequestHandler` {Function} See [Compatibility API][]
@@ -604,16 +706,29 @@ server.listen(80);
 ### http2.createSecureServer(options[, onRequestHandler])
 
 * `options` {Object}
+  * `allowHTTP1` {boolean} Incoming client connections that do not support
+    HTTP/2 will be downgraded to HTTP/1.x when set to `true`. The default value
+    is `false`, which rejects non-HTTP/2 client connections.
   * `maxDefaultDynamicTableSize` {number} (TODO: Add detail)
   * `maxReservedRemoteStreams` {number} (TODO: Add detail)
   * `maxSendHeaderBlockLength` {number} (TODO: Add detail)
   * `noHttpMessaging` {boolean} (TODO: Add detail)
   * `noRecvClientMagic` {boolean} (TODO: Add detail)
-  * `paddingStrategy` {number} (TODO: Add detail)
+  * `paddingStrategy` {number} Identifies the strategy used for determining the
+     amount of padding to use for HEADERS and DATA frames. Defaults to
+     `http2.constants.PADDING_STRATEGY_NONE`. Value may be one of:
+     * `http2.constants.PADDING_STRATEGY_NONE` - Specifies that no padding is
+       to be applied.
+     * `http2.constants.PADDING_STRATEGY_MAX` - Specifies that the maximum
+       amount of padding, as determined by the internal implementation, is to
+       be applied.
+     * `http2.constants.PADDING_STRATEGY_CALLBACK` - Specifies that the user
+       provided `options.selectPadding` callback is to be used to determine the
+       amount of padding.
   * `peerMaxConcurrentStreams` {number} (TODO: Add detail)
-  * `allowHTTP1` {boolean} Incoming client connections that do not support
-    HTTP/2 will be downgraded to HTTP/1.x when set to `true`. The default value
-    is `false`, which rejects non-HTTP/2 client connections.
+  * `selectPadding` {Function} When `options.paddingStrategy` is equal to
+    `http2.constants.PADDING_STRATEGY_CALLBACK`, provides the callback function
+    used to determine the padding. See [Using options.selectPadding][].
   * `settings` {[Settings Object][]} The initial settings to send to the
     remote peer upon connection.
   * ...: Any [`tls.createServer()`][] options can be provided. For
@@ -648,6 +763,31 @@ server.listen(80);
 
 ### http2.connect(authority, options, listener)
 
+* `authority` {string|URL}
+* `options` {Object}
+  * `maxDefaultDynamicTableSize` {number} (TODO: Add detail)
+  * `maxReservedRemoteStreams` {number} (TODO: Add detail)
+  * `maxSendHeaderBlockLength` {number} (TODO: Add detail)
+  * `noHttpMessaging` {boolean} (TODO: Add detail)
+  * `noRecvClientMagic` {boolean} (TODO: Add detail)
+  * `paddingStrategy` {number} Identifies the strategy used for determining the
+     amount of padding to use for HEADERS and DATA frames. Defaults to
+     `http2.constants.PADDING_STRATEGY_NONE`. Value may be one of:
+     * `http2.constants.PADDING_STRATEGY_NONE` - Specifies that no padding is
+       to be applied.
+     * `http2.constants.PADDING_STRATEGY_MAX` - Specifies that the maximum
+       amount of padding, as determined by the internal implementation, is to
+       be applied.
+     * `http2.constants.PADDING_STRATEGY_CALLBACK` - Specifies that the user
+       provided `options.selectPadding` callback is to be used to determine the
+       amount of padding.
+  * `peerMaxConcurrentStreams` {number} (TODO: Add detail)
+  * `selectPadding` {Function} When `options.paddingStrategy` is equal to
+    `http2.constants.PADDING_STRATEGY_CALLBACK`, provides the callback function
+    used to determine the padding. See [Using options.selectPadding][].
+  * `settings` {[Settings Object][]} The initial settings to send to the
+    remote peer upon connection.
+* `listener` {Function}
 * Returns `Http2Session`
 
 Returns a HTTP/2 client `Http2Session` instance.
@@ -687,7 +827,7 @@ not work.
 
 The `http2.getDefaultSettings()`, `http2.getPackedSettings()`,
 `http2.createServer()`, `http2.createSecureServer()`,
-`http2session.submitSettings()`, `http2session.localSettings`, and
+`http2session.settings()`, `http2session.localSettings`, and
 `http2session.remoteSettings` APIs either return or receive as input an
 object that defines configuration settings for an `Http2Session` object.
 These objects are ordinary JavaScript objects containing the following
@@ -715,6 +855,31 @@ properties.
 
 All additional properties on the settings object are ignored.
 
+### Using `options.selectPadding`
+
+When `options.paddingStrategy` is equal to
+`http2.constants.PADDING_STRATEGY_CALLBACK`, the the HTTP/2 implementation will
+consult the `options.selectPadding` callback function, if provided, to determine
+the specific amount of padding to use per HEADERS and DATA frame.
+
+The `options.selectPadding` function receives two numeric arguments,
+`frameLen` and `maxFrameLen` and must return a number `N` such that
+`frameLen <= N <= maxFrameLen`.
+
+```js
+const http2 = require('http2');
+const server = http2.createServer({
+  paddingStrategy: http2.constants.PADDING_STRATEGY_CALLBACK,
+  selectPadding(frameLen, maxFrameLen) {
+    return maxFrameLen;
+  }
+});
+```
+
+*Note*: The `options.selectPadding` function is invoked once for *every*
+HEADERS and DATA frame. This has a definite noticeable impact on
+performance.
+
 ## Compatibility API
 
 TBD
@@ -728,3 +893,5 @@ TBD
 [Compatibility API: #http2_compatibility_api
 [Headers Object]: #http2_headers_object
 [Settings Object]: #http2_settings_object
+[Http2Session and Sockets]: #http2_http2sesion_and_sockets
+[Using options.selectPadding]: #http2_using_options_selectpadding
