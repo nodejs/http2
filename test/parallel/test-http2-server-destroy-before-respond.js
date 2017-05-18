@@ -13,8 +13,8 @@ function onStream(stream, headers, flags) {
   stream.session.destroy();
   assert.throws(() => stream.respond({}),
                 common.expectsError({
-                  code: 'ERR_HTTP2_INVALID_SESSION',
-                  message: /^The session has been destroyed$/
+                  code: 'ERR_HTTP2_INVALID_STREAM',
+                  message: /^The stream has been destroyed$/
                 }));
 }
 

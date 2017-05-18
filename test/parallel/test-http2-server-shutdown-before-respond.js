@@ -9,8 +9,9 @@ const server = h2.createServer();
 server.on('stream', common.mustCall(onStream));
 
 function onStream(stream, headers, flags) {
+  const session = stream.session;
   stream.session.shutdown({graceful: true}, common.mustCall(() => {
-    stream.session.destroy();
+    session.destroy();
   }));
   stream.respond({});
   stream.end('data');
@@ -24,11 +25,10 @@ server.on('listening', common.mustCall(() => {
 
   const req = client.request({ ':path': '/' });
 
-  req.on('response', common.mustNotCall());
+  // Shutdown is graceful so this must be called
+  req.on('response', common.mustCall());
   req.resume();
-  req.on('end', common.mustCall(() => {
-    server.close();
-  }));
+  req.on('end', common.mustCall(() => server.close()));
   req.end();
 
 }));

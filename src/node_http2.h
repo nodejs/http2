@@ -185,18 +185,6 @@ enum http2_data_flags {
 } http2_data_flags;
 #undef V
 
-#define THROW_AND_RETURN_UNLESS_(template, name, env, obj)                    \
-  do {                                                                        \
-    if (!env->template##_constructor_template()->HasInstance(obj))            \
-      return env->ThrowTypeError("argument must be an " #name " instance");   \
-  } while (0)
-
-#define THROW_AND_RETURN_UNLESS_HTTP2SETTINGS(env, obj)                       \
-  THROW_AND_RETURN_UNLESS_(http2settings, "Http2Settings", env, obj);
-
-#define THROW_AND_RETURN_UNLESS_HTTP2STREAM(env, obj)                         \
-  THROW_AND_RETURN_UNLESS_(http2stream, "Http2Stream", env, obj);
-
 #define NGHTTP2_ERROR_CODES(V)                                                 \
   V(NGHTTP2_ERR_INVALID_ARGUMENT)                                              \
   V(NGHTTP2_ERR_BUFFER_ERROR)                                                  \
@@ -249,26 +237,40 @@ const char* nghttp2_errname(int rv) {
 }
 
 #define OPTIONS(obj, V)                                                       \
-  V(obj, "maxDeflateDynamicTableSize", SetMaxDeflateDynamicTableSize, Uint32) \
-  V(obj, "maxReservedRemoteStreams", SetMaxReservedRemoteStreams, Uint32)     \
-  V(obj, "maxSendHeaderBlockLength", SetMaxSendHeaderBlockLength, Uint32)     \
-  V(obj, "peerMaxConcurrentStreams", SetPeerMaxConcurrentStreams, Uint32)     \
-  V(obj, "noHttpMessaging", SetNoHttpMessaging, Boolean)                      \
-  V(obj, "noRecvClientMagic", SetNoRecvClientMagic, Boolean)                  \
-  V(obj, "paddingStrategy", SetPaddingStrategy, Uint32)
+  V(obj,                                                                      \
+    maxdeflatedynamictablesize_string,                                        \
+    SetMaxDeflateDynamicTableSize, Uint32)                                    \
+  V(obj,                                                                      \
+    maxreservedremotestreams_string,                                          \
+    SetMaxReservedRemoteStreams, Uint32)                                      \
+  V(obj,                                                                      \
+    maxsendheaderblocklength_string,                                          \
+    SetMaxSendHeaderBlockLength, Uint32)                                      \
+  V(obj,                                                                      \
+    peermaxconcurrentstreams_string,                                          \
+    SetPeerMaxConcurrentStreams, Uint32)                                      \
+  V(obj,                                                                      \
+    nohttpmessaging_string,                                                   \
+    SetNoHttpMessaging, Boolean)                                              \
+  V(obj,                                                                      \
+    norecvclientmagic_string,                                                 \
+    SetNoRecvClientMagic, Boolean)                                            \
+  V(obj,                                                                      \
+    paddingstrategy_string,                                                   \
+    SetPaddingStrategy, Uint32)
 
-#define SETTINGS(V)                                                     \
-  V("headerTableSize", NGHTTP2_SETTINGS_HEADER_TABLE_SIZE,              \
-    Integer, NewFromUnsigned)                                           \
-  V("maxConcurrentStreams", NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS,    \
-    Integer, NewFromUnsigned)                                           \
-  V("initialWindowSize", NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE,          \
-    Integer, NewFromUnsigned)                                           \
-  V("maxFrameSize", NGHTTP2_SETTINGS_MAX_FRAME_SIZE,                    \
-    Integer, NewFromUnsigned)                                           \
-  V("maxHeaderListSize", NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE,         \
-    Integer, NewFromUnsigned)                                           \
-  V("enablePush", NGHTTP2_SETTINGS_ENABLE_PUSH,                         \
+#define SETTINGS(V)                                                          \
+  V(headertablesize_string, NGHTTP2_SETTINGS_HEADER_TABLE_SIZE,              \
+    Integer, NewFromUnsigned)                                                \
+  V(maxconcurrentstreams_string, NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS,    \
+    Integer, NewFromUnsigned)                                                \
+  V(initialwindowsize_string, NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE,          \
+    Integer, NewFromUnsigned)                                                \
+  V(maxframesize_string, NGHTTP2_SETTINGS_MAX_FRAME_SIZE,                    \
+    Integer, NewFromUnsigned)                                                \
+  V(maxheaderlistsize_string, NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE,         \
+    Integer, NewFromUnsigned)                                                \
+  V(enablepush_string, NGHTTP2_SETTINGS_ENABLE_PUSH,                         \
     Boolean, New)
 
 #define DEFAULT_SETTINGS_HEADER_TABLE_SIZE 4096
@@ -393,21 +395,19 @@ class Http2Session : public AsyncWrap,
     return OnCallbackPadding(frameLength, maxPayloadLen);
   }
 
-  void OnHeaders(std::shared_ptr<Nghttp2Stream> stream,
+  void OnHeaders(Nghttp2Stream* stream,
                  nghttp2_header_list* headers,
                  nghttp2_headers_category cat,
                  uint8_t flags) override;
-  void OnStreamClose(int32_t id, uint32_t error_code) override;
-  void Send(uv_buf_t* bufs,
-            size_t total) override;
-  void OnDataChunks(std::shared_ptr<Nghttp2Stream> stream,
-                    std::shared_ptr<nghttp2_data_chunks_t> chunks) override;
+  void OnStreamClose(int32_t id, uint32_t code) override;
+  void Send(uv_buf_t* bufs, size_t total) override;
+  void OnDataChunk(Nghttp2Stream* stream, nghttp2_data_chunk_t* chunk) override;
   void OnSettings() override;
   void OnPriority(int32_t stream,
                   int32_t parent,
                   int32_t weight,
                   int8_t exclusive) override;
-  void OnTrailers(std::shared_ptr<Nghttp2Stream> stream,
+  void OnTrailers(Nghttp2Stream* stream,
                   MaybeStackBuffer<nghttp2_nv>* trailers) override;
   uv_buf_t* AllocateSend(size_t recommended) override;
 
@@ -421,17 +421,24 @@ class Http2Session : public AsyncWrap,
   void* Cast() override {
     return reinterpret_cast<void*>(this);
   }
+
+  // Required for StreamBase
   bool IsAlive() override {
     return true;
   }
+
+  // Required for StreamBase
   bool IsClosing() override {
     return false;
   }
-  // Non-op
+
+  // Required for StreamBase
   int ReadStart() override { return 0; }
-  // Non-op
+
+  // Required for StreamBase
   int ReadStop() override { return 0; }
-  // Non-op
+
+  // Required for StreamBase
   int DoShutdown(ShutdownWrap* req_wrap) override {
     return 0;
   }
@@ -457,6 +464,7 @@ class Http2Session : public AsyncWrap,
   static void StreamReadStop(const FunctionCallbackInfo<Value>& args);
   static void SetNextStreamID(const FunctionCallbackInfo<Value>& args);
   static void SubmitShutdown(const FunctionCallbackInfo<Value>& args);
+  static void DestroyStream(const FunctionCallbackInfo<Value>& args);
 
   template <get_setting fn>
   static void GetSettings(const FunctionCallbackInfo<Value>& args);
@@ -491,7 +499,7 @@ class SessionShutdownWrap : public ReqWrap<uv_idle_t> {
                       uint32_t errorCode,
                       int32_t lastStreamID,
                       Local<Value> opaqueData,
-                      bool immediate,
+                      bool graceful,
                       DoneCb cb)
       : ReqWrap(env, req_wrap_obj,
                 AsyncWrap::PROVIDER_HTTP2SESSIONSHUTDOWNWRAP),
@@ -499,14 +507,14 @@ class SessionShutdownWrap : public ReqWrap<uv_idle_t> {
         cb_(cb),
         errorCode_(errorCode),
         lastStreamID_(lastStreamID),
-        immediate_(immediate) {
+        graceful_(graceful) {
     Wrap(req_wrap_obj, this);
     if (opaqueData->BooleanValue()) {
-      // TODO(jasnell): When immediate = true, there's no reason to copy
-      //                the opaque data.
       SPREAD_BUFFER_ARG(opaqueData, data);
-      opaqueData_.AllocateSufficientStorage(data_length);
-      memcpy(*opaqueData_, data_data, data_length);
+      if (graceful) {
+        opaqueData_.AllocateSufficientStorage(data_length);
+        memcpy(*opaqueData_, data_data, data_length);
+      }
     }
   }
   ~SessionShutdownWrap() {}
@@ -519,27 +527,27 @@ class SessionShutdownWrap : public ReqWrap<uv_idle_t> {
   }
   size_t self_size() const override { return sizeof(*this); }
 
-  uint32_t errorCode() {
+  uint32_t errorCode() const {
     return errorCode_;
   }
 
-  int32_t lastStreamID() {
+  int32_t lastStreamID() const {
     return lastStreamID_ > 0 ? lastStreamID_ : 0;
   }
 
-  uint8_t* opaqueData() {
+  const uint8_t* opaqueData() const {
     return *opaqueData_;
   }
 
-  bool immediate() {
-    return immediate_;
+  bool graceful() const {
+    return graceful_;
   }
 
-  size_t opaqueDataLength() {
+  size_t opaqueDataLength() const {
     return opaqueData_.length();
   }
 
-  Nghttp2Session* handle() {
+  Nghttp2Session* handle() const {
     return handle_;
   }
 
@@ -548,7 +556,7 @@ class SessionShutdownWrap : public ReqWrap<uv_idle_t> {
   DoneCb cb_;
   uint32_t errorCode_;
   int32_t lastStreamID_;
-  bool immediate_;
+  bool graceful_;
   MaybeStackBuffer<uint8_t> opaqueData_;
 };
 
@@ -668,7 +676,7 @@ class Headers {
     return *headers_;
   }
 
-  size_t length() {
+  size_t length() const {
     return headers_.length();
   }
 

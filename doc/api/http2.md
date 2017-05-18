@@ -71,7 +71,7 @@ have occasion to work with the `Http2Session` object directly, with most
 actions typically taken through interactions with either the `Http2Server` or
 `Http2Stream` objects.
 
-#### Http2Stream and Sockets
+#### Http2Session and Sockets
 
 Every `Http2Session` instance is associated with exactly one [`net.Socket`][] or
 [`tls.TLSSocket`][] when it is created. When either the `Socket` or the
@@ -152,11 +152,15 @@ server.on('stream', (stream, headers) => {
 server.listen(80);
 ```
 
-#### Event: 'streamError'
+#### Event: 'socketError'
 
-The `'streamError'` event is emitted when an `'error'` event on an `Http2Stream`
-is not handled by a listener on the `Http2Stream` object. If a listener is not
-registered for this event, an `'error'` event will be emitted.
+The `'socketError'` event is emitted when an `'error'` is emitted on the
+`Socket` instance bound to the `Http2Session`. If this event is not handled,
+the `'error'` event will be re-emitted on the `Socket`.
+
+Likewise, when an `'error'` event is emitted on the `Http2Session`, a
+`'sessionError'` event will be emitted on the `Socket`. If that event is
+not handled, the `'error'` event will be re-emitted on the `Http2Session`.
 
 #### Event: 'timeout'
 
@@ -219,7 +223,7 @@ This method is only available if `http2session.type` is equal to
 * stream {Http2Stream}
 * code {number}
 
-Sends an `RST-STREAM` frame to the connected HTTP/2 peer, causing the given
+Sends an `RST_STREAM` frame to the connected HTTP/2 peer, causing the given
 `Http2Stream` to be closed on both sides using error code `code`.
 
 #### http2session.setTimeout(msecs, callback)
@@ -234,8 +238,6 @@ Sends an `RST-STREAM` frame to the connected HTTP/2 peer, causing the given
 * `options` {Object}
   * `graceful` {boolean} `true` to attempt a polite shutdown of the
     `Http2Session`.
-  * `immediate` {boolean} `true` to force the shutdown to occur immediately,
-    regardless of any data transfer that may be pending.
   * `errorCode` {number} The HTTP/2 Error Code to return. Note that this is
     *not* the same thing as an HTTP Response Status Code.
   * `lastStreamID` {number} The Stream ID of the last successfully processed
@@ -327,6 +329,59 @@ On the client, `Http2Stream` instances are created and returned when either the
 `http2session.request()` method is called, or in response to an incoming
 `'push'` event.
 
+*Note*: The `Http2Stream` class is a base for the [`ServerHttp2Stream`][] and
+[`ClientHttp2Stream`][] classes, each of which are used specifically by either
+the Server or Client side, respectively.
+
+All `Http2Stream` instances are [`Duplex`][] streams. The `Writable` side of the
+`Duplex` is used to send data to the connected peer, while the `Readable` side
+is used to receive data sent by the connected peer.
+
+#### Http2Stream Lifecycle
+
+##### Creation
+
+On the server side, instances of [`ServerHttp2Stream`][] are created either
+when:
+
+* A new HTTP/2 `HEADERS` frame with a previously unused stream ID is received;
+* The `http2stream.pushStream()` method is called.
+
+On the client side, instances of [`ClientHttp2Stream`[] are created when the
+`http2session.request()` method is called.
+
+*Note*: On the client, the `Http2Stream` instance returned by
+`http2session.request()` may not be immediately ready for use if the parent
+`Http2Session` has not yet been fully established. In such cases, operations
+called on the `Http2Stream` will be buffered until the `'ready'` event is
+emitted. User code should rarely, if ever, have need to handle the `'ready'`
+event directly. The ready status of an `Http2Stream` can be determined by
+checking the value of `http2stream.id`. If the value is `undefined`, the stream
+is not yet ready for use.
+
+##### Destruction
+
+All [`Http2Stream`][] instances are destroyed either when:
+
+* An `RST_STREAM` frame for the stream is received by the connected peer.
+* The `http2stream.rstStream()` or `http2session.rstStream()` methods are
+  called.
+* The `http2stream.destroy()` or `http2session.destroy()` methods are called.
+
+When an `Http2Stream` instance is destroyed, an attempt will be made to send an
+`RST_STREAM` frame will be sent to the connected peer.
+
+Once the `Http2Stream` instance is destroyed, the `'streamClosed'` event will
+be emitted. Because `Http2Stream` is an instance of `stream.Duplex`, the
+`'end'` event will also be emitted if the stream data is currently flowing.
+The `'error'` event may also be emitted if `http2stream.destroy()` was called
+with an `Error` passed as the first argument.
+
+After the `Http2Stream` has been destroyed, the `http2stream.destroyed`
+property will be `true` and the `http2stream.rstCode` property will specify the
+`RST_STREAM` error code. The `Http2Stream` instance is no longer usable once
+destroyed.
+
 #### Event: 'aborted'
 
 The `'aborted'` event is emitted whenever a `Http2Stream` instance is
@@ -334,7 +389,8 @@ abnormally aborted in mid-communication.
 
 #### Event: 'error'
 
-(TODO: fill in detail)
+The `'error'` event is emitted when an error occurs during the processing of
+an `Http2Stream`.
 
 #### Event: 'fetchTrailers'
 
@@ -349,64 +405,15 @@ stream.on('fetchTrailers', (trailers) => {
 });
 ```
 
-#### Event: 'headers'
-
-The `'headers'` event is emitted when a block of headers has been received
-on the `Http2Stream`, and the block does not correspond with an HTTP request,
-response or push request. The listener callback is passed the [Headers Object][]
-and flags associated with the headers.
-
-```js
-stream.on('headers', (headers, flags) => {
-  // TODO(jasnell): Fill in example
-});
-```
-
-#### Event: 'push'
-
-The `'push'` event is emitted when response headers for a Server Push stream
-are received. The listener callback is passed the [Headers Object][] and flags
-associated with the headers.
-
-```js
-stream.on('push', (headers, flags) => {
-  // TODO(jasnell): Fill in example
-});
-```
-
-#### Event: 'request'
-
-The `'request'` event is emitted when a block of headers associated with an
-HTTP request is received. The listener callback is passed the [Headers Object][]
-and flags associated with the headers.
-
-```js
-stream.on('request', (headers, flags) => {
-  // TODO(jasnell): Fill in example
-});
-```
-
-This is emitted only when `http2session.type` is equal to
-`http2.constants.NGHTTP_SESSION_SERVER`.
-
-#### Event: 'response'
-
-The `'response'` event is emitted when a block of headers associated with an
-HTTP response is received. The listener callback is passed the
-[Headers Object][] and flags associated with the headers.
-
-```js
-stream.on('response', (headers, flags) => {
-  // TODO(jasnell): Fill in example
-});
-```
-
-This is emitted only when `http2session.type` is equal to
-`http2.constants.NGHTTP_SESSION_CLIENT`.
+*Note*: The HTTP/1 specification forbids trailers from containing HTTP/2
+"pseudo-header" fields (e.g. `':status'`, `':path'`, etc). An `'error'` event
+will be emitted if the `'fetchTrailers'` event handler attempts to set such
+header fields.
 
 #### Event: 'streamClosed'
 
-The `'streamClosed'` event is emitted when the `Http2Stream` is closed.
+The `'streamClosed'` event is emitted when the `Http2Stream` is destroyed. Once
+this event is emitted, the `Http2Stream` instance is no longer usable.
 
 #### Event: 'timeout'
 
@@ -423,6 +430,13 @@ stream.on('trailers', (headers, flags) => {
   // TODO(jasnell): Fill in example
 });
 ```
+
+#### http2stream.destroyed
+
+* Value: {boolean}
+
+Set to `true` if the `Http2Stream` instance has been destroyed and is no longer
+usable.
 
 #### http2stream.priority(options)
 
@@ -441,11 +455,19 @@ Updates the priority for this `Http2Stream` instance. If `options.silent`
 is `false`, causes a new `PRIORITY` frame to be sent to the connected HTTP/2
 peer.
 
+#### http2stream.rstCode
+
+* Value: {number}
+
+Set to the `RST_STREAM` error code when the `Http2Stream` is destroyed after
+either receiving an `RST_STREAM` frame from the connected peer, calling
+`http2stream.rstStream()`, or `http2stream.destroy()`.
+
 #### http2stream.rstStream(code)
 
 * `code` {number}
 
-Sends an `RST-STREAM` frame to the connected HTTP/2 peer, causing this
+Sends an `RST_STREAM` frame to the connected HTTP/2 peer, causing this
 `Http2Stream` to be closed on both sides using error code `code`.
 
 #### http2stream.rstWithNoError()
@@ -468,18 +490,12 @@ Shortcut for `http2stream.rstStream()` using error code `REFUSED_STREAM`.
 
 Shortcut for `http2stream.rstStream()` using error code `INTERNAL_ERROR`.
 
-#### http2stream.sendHeaders(headers)
-
-* `headers` {[Headers Object][]}
-
-Sends a `HEADERS` frame to the connected HTTP/2 peer.
-(TODO: fill in detail)
-
 #### http2stream.session
 
 * Value: {Http2Sesssion}
 
-A reference to the `Http2Session` instance that owns this `Http2Stream`.
+A reference to the `Http2Session` instance that owns this `Http2Stream`. The
+value will be `undefined` after the `Http2Stream` instance is destroyed.
 
 #### http2stream.setTimeout(msecs, callback)
 
@@ -500,9 +516,84 @@ A reference to the `Http2Session` instance that owns this `Http2Stream`.
 
 A current state of this `Http2Stream`.
 
+### Class: ClientHttp2Stream
+
+* Extends {Http2Stream}
+
+The `ClientHttp2Stream` class is an extension of `Http2Stream` that is
+used exclusively on HTTP/2 Clients. `Http2Stream` instances on the client
+provide events such as `'response'` and `'push'` that are only relevant on
+the client.
+
+#### Event: 'headers'
+
+The `'headers'` event is emitted when an additional block of headers is received
+for a stream, such as when a block of `1xx` informational headers are received.
+The listener callback is passed the [Headers Object][] and flags associated with
+the headers.
+
+```js
+stream.on('headers', (headers, flags) => {
+  // TODO(jasnell): Fill in example
+});
+```
+
+#### Event: 'push'
+
+The `'push'` event is emitted when response headers for a Server Push stream
+are received. The listener callback is passed the [Headers Object][] and flags
+associated with the headers.
+
+```js
+stream.on('push', (headers, flags) => {
+  // TODO(jasnell): Fill in example
+});
+```
+
+#### Event: 'response'
+
+The `'response'` event is emitted when a response `HEADERS` frame has been
+received for this stream from the connected HTTP/2 server. The listener is
+invoked with two arguments: an Object containing the received
+[Headers Object][], and flags associated with the headers.
+
+For example:
+
+```js
+const http2 = require('http');
+const client = http2.connect('https://localhost');
+const req = client.request({ ':path': '/' });
+req.on('response', (headers, flags) => {
+  console.log(headers[':status']);
+});
+```
+
 ### Class: ServerHttp2Stream
 
 * Extends: {Http2Stream}
+
+The `ServerHttp2Stream` class is an extension of [`Http2Stream`][] that is
+used exclusively on HTTP/2 Servers. `Http2Stream` instances on the server
+provide additional methods such as `http2stream.pushStream()` and
+`http2stream.respond()` that are only relevant on the server.
+
+#### Event: 'request'
+
+The `'request'` event is emitted when a block of headers associated with an
+HTTP request is received. The listener callback is passed the [Headers Object][]
+and flags associated with the headers.
+
+```js
+stream.on('request', (headers, flags) => {
+  // TODO(jasnell): Fill in example
+});
+```
+
+#### http2stream.additionalHeaders(headers)
+
+* `headers` {[Headers Object][]}
+
+Sends an additional informational `HEADERS` frame to the connected HTTP/2 peer.
 
 #### http2stream.pushStream(headers[, options], callback)
 
@@ -586,13 +677,13 @@ server.on('stream', (stream, headers, flags) => {
 
 The `'sessionError'` event is emitted when an `'error'` event is emitted by
 an `Http2Session` object. If no listener is registered for this event, an
-`'error'` event is emitted.
+`'error'` event is emitted on the `Http2Session` instance instead.
 
 #### Event: 'socketError'
 
 The `'socketError`' event is emitted when an `'error'` event is emitted by
 a `Socket` associated with the server. If no listener is registered for this
-event, an `'error'` event is emitted.
+event, an `'error'` event is emitted on the `Socket` instance instead.
 
 #### Event: 'stream'
 
@@ -880,6 +971,28 @@ const server = http2.createServer({
 HEADERS and DATA frame. This has a definite noticeable impact on
 performance.
 
+### Error Handling
+
+There are several types of error conditions that may arise when using the
+`http2` module:
+
+Validation Errors occur when an incorrect argument, option or setting value is
+passed in. These will always be reported by a synchronous `throw`.
+
+State Errors occur when an action is attempted at an incorrect time (for
+instance, attempting to send data on a stream after it has closed). These will
+be repoorted using either a synchronous `throw` or via an `'error'` event on
+the `Http2Stream`, `Http2Session` or HTTP/2 Server objects, depending on where
+and when the error occurs.
+
+Internal Errors occur when an HTTP/2 session fails unexpectedly. These will be
+reported via an `'error'` event on the `Http2Session` or HTTP/2 Server objects.
+
+Protocol Errors occur when various HTTP/2 protocol constraints are violated.
+These will be reported using either a synchronous `throw` or via an `'error'`
+event on the `Http2Stream`, `Http2Session` or HTTP/2 Server objects, depending
+on where and when the error occurs.
+
 ## Compatibility API
 
 TBD
@@ -890,8 +1003,12 @@ TBD
 [`net.Socket`]: net.html
 [`tls.TLSSocket`]: tls.html
 [`tls.createServer()`]: tls.html#tls_tls_createserver_options_secureconnectionlistener
+[ClientHttp2Stream]: #http2_class_clienthttp2stream
 [Compatibility API: #http2_compatibility_api
+[`Duplex`]: stream.html#stream_class_stream_duplex
 [Headers Object]: #http2_headers_object
-[Settings Object]: #http2_settings_object
+[Http2Stream]: #http2_class_http2stream
 [Http2Session and Sockets]: #http2_http2sesion_and_sockets
+[ServerHttp2Stream]: #http2_class_serverhttp2stream
+[Settings Object]: #http2_settings_object
 [Using options.selectPadding]: #http2_using_options_selectpadding

@@ -11,7 +11,7 @@ function checkRstCode(rstMethod, expectRstCode) {
       'content-type': 'text/html',
       ':status': 200
     });
-    stream.end('test');
+    stream.write('test');
     if (rstMethod === 'rstStream')
       stream[rstMethod](expectRstCode);
     else
@@ -26,14 +26,15 @@ function checkRstCode(rstMethod, expectRstCode) {
     const req = client.request(headers);
 
     req.setEncoding('utf8');
-    req.on('streamClosed', common.mustCall(function(actualRstCode) {
+    req.on('streamClosed', common.mustCall((actualRstCode) => {
       assert.strictEqual(
         expectRstCode, actualRstCode, `${rstMethod} is not match rstCode`);
       server.close();
       client.destroy();
     }));
-    req.on('data', common.mustNotCall(() => {}));
-    req.on('end', common.mustCall(() => {}));
+    req.on('data', common.mustCall());
+    req.on('aborted', common.mustCall());
+    req.on('end', common.mustCall());
     req.end();
   }));
 }
