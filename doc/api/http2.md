@@ -227,8 +227,6 @@ process has completed.
 A reference to the [`net.Socket`][] or [`tls.TLSSocket`][] to which this
 `Http2Session` instance is bound.
 
-Directly reading from and writing to the socket is strongly discouraged.
-
 #### http2session.state
 
 * Value: {Object}
