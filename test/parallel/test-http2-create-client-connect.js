@@ -43,8 +43,8 @@ const URL = url.URL;
     // Will fail because protocol does not match the server.
     // Note, however, that the connect event will still fire
     h2.connect({port: port, protocol: 'https:'})
-      .on('connect', common.mustCall(() => {}))
-      .on('error', common.mustCall(() => {}));
+      .on('connect', common.mustCall())
+      .on('socketError', common.mustCall());
   }));
 }
 

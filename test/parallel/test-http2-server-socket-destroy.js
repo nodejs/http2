@@ -3,8 +3,6 @@
 const common = require('../common');
 const h2 = require('http2');
 const assert = require('assert');
-const body =
-  '<html><head></head><body><h1>this is some data</h2></body></html>';
 
 const server = h2.createServer();
 
@@ -16,8 +14,7 @@ function onStream(stream) {
     'content-type': 'text/html',
     ':status': 200
   });
-  stream.write(body);
-  stream.end();
+  stream.write('test');
 
   const socket = stream.session.socket;
 
@@ -37,18 +34,16 @@ function onStream(stream) {
 
 server.listen(0);
 
-server.on('listening', common.mustCall(function() {
-  const client = h2.connect(`http://localhost:${this.address().port}`);
+server.on('listening', common.mustCall(() => {
+  const client = h2.connect(`http://localhost:${server.address().port}`);
 
   const req = client.request({ ':path': '/' });
 
-  // On the request, aborted and end must be called, response and data must not
   req.on('aborted', common.mustCall());
   req.on('end', common.mustCall());
-  req.on('response', common.mustNotCall());
-  req.on('data', common.mustNotCall());
+  req.on('response', common.mustCall());
+  req.on('data', common.mustCall());
 
-  // On the client, the close event must call
   client.on('close', common.mustCall());
   req.end();
 }));

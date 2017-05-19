@@ -1,12 +1,15 @@
 'use strict';
 
 const common = require('../common');
+const assert = require('assert');
 const h2 = require('http2');
 
 const server = h2.createServer();
 
 // we use the lower-level API here
-server.on('stream', common.mustNotCall());
+server.on('stream', common.mustCall((stream) => {
+  stream.on('aborted', common.mustCall());
+}));
 
 server.listen(0);
 
@@ -16,13 +19,20 @@ server.on('listening', common.mustCall(() => {
 
   const req = client.request({ ':path': '/' });
   client.rstStream(req, 0);
+  assert.strictEqual(req.rstCode, 0);
 
-  req.on('response', common.mustNotCall());
-  req.resume();
-  req.on('end', common.mustCall(() => {
+  // make sure that destroy is called
+  req._destroy = common.mustCall(req._destroy.bind(req));
+
+  req.on('streamClosed', common.mustCall((code) => {
+    assert.strictEqual(req.destroyed, true);
+    assert.strictEqual(code, 0);
     server.close();
     client.destroy();
   }));
-  req.end();
 
+  req.on('response', common.mustNotCall());
+  req.resume();
+  req.on('end', common.mustCall());
+  req.end();
 }));
