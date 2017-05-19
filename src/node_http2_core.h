@@ -29,16 +29,23 @@ enum nghttp2_session_type {
 };
 
 enum nghttp2_shutdown_flags {
-  NGHTTP2_SHUTDOWN_FLAG_GRACEFUL,
-  NGHTTP2_SHUTDOWN_FLAG_IMMEDIATE
+  NGHTTP2_SHUTDOWN_FLAG_GRACEFUL
 };
 
 enum nghttp2_stream_flags {
   NGHTTP2_STREAM_FLAG_NONE = 0x0,
   // Writable side has ended
   NGHTTP2_STREAM_FLAG_SHUT = 0x1,
-  // Readable side has ended
-  NGHTTP2_STREAM_FLAG_ENDED = 0x2
+  // Reading has started
+  NGHTTP2_STREAM_READ_START = 0x2,
+  // Reading is paused
+  NGHTTP2_STREAM_READ_PAUSED = 0x4,
+  // Stream is closed
+  NGHTTP2_STREAM_CLOSED = 0x8,
+  // Stream is destroyed
+  NGHTTP2_STREAM_DESTROYED = 0x10,
+  // Stream is being destroyed
+  NGHTTP2_STREAM_DESTROYING = 0x20
 };
 
 
@@ -46,7 +53,6 @@ enum nghttp2_stream_flags {
 typedef void (*nghttp2_stream_write_cb)(
     nghttp2_stream_write_t* req,
     int status);
-
 
 struct nghttp2_stream_write_queue {
   unsigned int nbufs = 0;
@@ -62,109 +68,70 @@ struct nghttp2_header_list {
   nghttp2_header_list* next = nullptr;
 };
 
-typedef enum {
-  NGHTTP2_CB_NONE,
-  NGHTTP2_CB_SESSION_SEND,
-  NGHTTP2_CB_HEADERS,
-  NGHTTP2_CB_STREAM_CLOSE,
-  NGHTTP2_CB_DATA_CHUNKS,
-  NGHTTP2_CB_SETTINGS,
-  NGHTTP2_CB_PRIORITY
-} nghttp2_pending_cb_type;
-
-struct nghttp2_pending_settings_cb {};
-
-struct nghttp2_pending_data_chunks_cb {
-  std::shared_ptr<Nghttp2Stream> handle;
-  nghttp2_data_chunk_t* head = nullptr;
-  nghttp2_data_chunk_t* tail = nullptr;
-  unsigned int nbufs = 0;
-  uint8_t flags = NGHTTP2_FLAG_NONE;
-};
-
-struct nghttp2_pending_session_send_cb {
-  size_t length = 0;
-  uv_buf_t* buf = nullptr;
-};
-
-struct nghttp2_pending_priority_cb {
-  int32_t stream;
-  int32_t parent;
-  int32_t weight;
-  int8_t exclusive;
-};
-
-struct nghttp2_pending_headers_cb {
-  std::shared_ptr<Nghttp2Stream> handle;
-  nghttp2_headers_category category = NGHTTP2_HCAT_HEADERS;
-  nghttp2_header_list* headers = nullptr;
-  uint8_t flags = NGHTTP2_FLAG_NONE;
-};
-
-struct nghttp2_pending_stream_close_cb {
-  std::shared_ptr<Nghttp2Stream> handle;
-  uint32_t error_code = NGHTTP2_NO_ERROR;
-};
-
-struct nghttp2_pending_cb_list {
-  nghttp2_pending_cb_type type = NGHTTP2_CB_NONE;
-  void* cb = nullptr;
-  nghttp2_pending_cb_list* next = nullptr;
-};
-
 // Handle Types
 class Nghttp2Session {
  public:
-  inline bool HasStream(int32_t id);
-  inline std::shared_ptr<Nghttp2Stream> FindStream(int32_t id);
-
-  inline int32_t SubmitRequest(
-      nghttp2_priority_spec* prispec,
-      nghttp2_nv* nva,
-      size_t len,
-      std::shared_ptr<Nghttp2Stream>* assigned = nullptr,
-      bool emptyPayload = true);
-
-  inline void SubmitShutdownNotice();
-
+  // Initializes the session instance
   inline int Init(
       uv_loop_t*,
       const nghttp2_session_type type = NGHTTP2_SESSION_SERVER,
       nghttp2_option* options = nullptr,
       nghttp2_mem* mem = nullptr);
+
+  // Frees this session instance
   inline int Free();
 
-  inline bool IsAliveSession();
+  // Returns the pointer to the identified stream, or nullptr if
+  // the stream does not exist
+  inline Nghttp2Stream* FindStream(int32_t id);
+
+  // Submits a new request. If the request is a success, assigned
+  // will be a pointer to the Nghttp2Stream instance assigned.
+  // This only works if the session is a client session.
+  inline int32_t SubmitRequest(
+      nghttp2_priority_spec* prispec,
+      nghttp2_nv* nva,
+      size_t len,
+      Nghttp2Stream** assigned = nullptr,
+      bool emptyPayload = true);
+
+  // Submits a notice to the connected peer that the session is in the
+  // process of shutting down.
+  inline void SubmitShutdownNotice();
+
+  // Submits a SETTINGS frame to the connected peer.
+  inline int SubmitSettings(const nghttp2_settings_entry iv[], size_t niv);
+
+  // Write data to the session
   inline ssize_t Write(const uv_buf_t* bufs, unsigned int nbufs);
 
-  inline int SubmitSettings(const nghttp2_settings_entry iv[], size_t niv);
-  inline std::shared_ptr<Nghttp2Stream> StreamInit(
-        int32_t id,
-        nghttp2_headers_category category = NGHTTP2_HCAT_HEADERS);
-
+  // Returns the nghttp2 library session
   inline nghttp2_session* session() { return session_; }
 
  protected:
-  virtual void OnStreamInit(std::shared_ptr<Nghttp2Stream> stream) {}
-  virtual void OnStreamFree(Nghttp2Stream* stream) {}
+  // Adds a stream instance to this session
+  inline void AddStream(Nghttp2Stream* stream);
+
+  // Removes a stream instance from this session
+  inline void RemoveStream(int32_t id);
+
   virtual void Send(uv_buf_t* buf,
                     size_t length) {}
-  virtual void OnHeaders(std::shared_ptr<Nghttp2Stream> stream,
+  virtual void OnHeaders(Nghttp2Stream* stream,
                          nghttp2_header_list* headers,
                          nghttp2_headers_category cat,
                          uint8_t flags) {}
-  virtual void OnStreamClose(int32_t id,
-                             uint32_t error_code) {}
-  virtual void OnDataChunks(std::shared_ptr<Nghttp2Stream> stream,
-                            std::shared_ptr<nghttp2_data_chunks_t> chunks) {}
+  virtual void OnStreamClose(int32_t id, uint32_t code) {}
+  virtual void OnDataChunk(Nghttp2Stream* stream,
+                           nghttp2_data_chunk_t* chunk) {}
   virtual void OnSettings() {}
-  virtual void OnPriority(int32_t stream,
+  virtual void OnPriority(int32_t id,
                           int32_t parent,
                           int32_t weight,
                           int8_t exclusive) {}
   virtual ssize_t GetPadding(size_t frameLength,
                              size_t maxFrameLength) { return 0; }
-  virtual void OnTrailers(std::shared_ptr<Nghttp2Stream> stream,
+  virtual void OnTrailers(Nghttp2Stream* stream,
                           MaybeStackBuffer<nghttp2_nv>* nva) {}
   virtual void OnFreeSession() {}
   virtual uv_buf_t* AllocateSend(size_t suggested_size) = 0;
@@ -172,26 +139,10 @@ class Nghttp2Session {
   virtual bool HasGetPaddingCallback() { return false; }
 
  private:
-  inline void SendAndMakeReady();
-  inline void DrainSend();
-  inline void DrainHeaders(nghttp2_pending_headers_cb*,
-                           bool freeOnly = false);
-  inline void QueuePendingCallback(nghttp2_pending_cb_list* item);
-  inline void DrainStreamClose(nghttp2_pending_stream_close_cb*,
-                               bool freeOnly = false);
-  inline void DrainSend(nghttp2_pending_session_send_cb*,
-                        bool freeOnly = false);
-  inline void DrainDataChunks(nghttp2_pending_data_chunks_cb*,
-                              bool freeOnly = false);
-  inline void DrainSettings(nghttp2_pending_settings_cb*,
-                            bool freeOnly = false);
-  inline void DrainPriority(nghttp2_pending_priority_cb*,
-                            bool freeOnly = false);
-
-  // If freeOnly is true, the callbacks will be freed without taking action
-  inline void DrainCallbacks(bool freeOnly = false);
-
-  static void StreamDeleter(Nghttp2Stream* handle);
+  inline void SendPendingData();
+  inline void HandleHeadersFrame(const nghttp2_frame* frame);
+  inline void HandlePriorityFrame(const nghttp2_frame* frame);
+  inline void HandleDataFrame(const nghttp2_frame* frame);
 
   /* callbacks for nghttp2 */
   static int OnBeginHeadersCallback(nghttp2_session* session,
@@ -207,24 +158,18 @@ class Nghttp2Session {
                             const nghttp2_frame* frame,
                             void* user_data);
   static int OnStreamClose(nghttp2_session* session,
-                           int32_t stream_id,
-                           uint32_t error_code,
+                           int32_t id,
+                           uint32_t code,
                            void* user_data);
-  static int OnBeginFrameReceived(nghttp2_session* session,
-                                  const nghttp2_frame_hd* hd,
-                                  void* user_data);
   static int OnDataChunkReceived(nghttp2_session* session,
                                  uint8_t flags,
-                                 int32_t stream_id,
+                                 int32_t id,
                                  const uint8_t *data,
                                  size_t len,
                                  void* user_data);
 
-  inline void QueuePendingDataChunks(Nghttp2Stream* stream,
-                                     uint8_t flags = NGHTTP2_FLAG_NONE);
-
   static ssize_t OnStreamRead(nghttp2_session* session,
-                              int32_t stream_id,
+                              int32_t id,
                               uint8_t* buf,
                               size_t length,
                               uint32_t* flags,
@@ -249,62 +194,187 @@ class Nghttp2Session {
   uv_loop_t* loop_;
   uv_prepare_t prep_;
   nghttp2_session_type session_type_;
-  nghttp2_pending_cb_list* pending_callbacks_head_ = nullptr;
-  nghttp2_pending_cb_list* pending_callbacks_tail_ = nullptr;
-  nghttp2_pending_cb_list* ready_callbacks_head_ = nullptr;
-  nghttp2_pending_cb_list* ready_callbacks_tail_ = nullptr;
-  std::unordered_map<int32_t, std::shared_ptr<Nghttp2Stream>> streams_;
+  std::unordered_map<int32_t, Nghttp2Stream*> streams_;
 
   friend class Nghttp2Stream;
 };
 
-class Nghttp2Stream : public std::enable_shared_from_this<Nghttp2Stream> {
- public:
-  inline ~Nghttp2Stream();
 
+
+class Nghttp2Stream {
+ public:
+  static inline Nghttp2Stream* Init(
+      int32_t id,
+      Nghttp2Session* session,
+      nghttp2_headers_category category = NGHTTP2_HCAT_HEADERS);
+
+  inline ~Nghttp2Stream() {
+    CHECK_EQ(session_, nullptr);
+    CHECK_EQ(queue_head_, nullptr);
+    CHECK_EQ(queue_tail_, nullptr);
+    CHECK_EQ(data_chunks_head_, nullptr);
+    CHECK_EQ(data_chunks_tail_, nullptr);
+    CHECK_EQ(current_headers_head_, nullptr);
+    CHECK_EQ(current_headers_tail_, nullptr);
+  }
+
+  // Resets the state of the stream instance to defaults
+  inline void ResetState(
+      int32_t id,
+      Nghttp2Session* session,
+      nghttp2_headers_category category = NGHTTP2_HCAT_HEADERS);
+
+  // Destroy this stream instance and free all held memory.
+  // Note that this will free queued outbound and inbound
+  // data chunks and inbound headers, so it's important not
+  // to call this until those are fully consumed.
+  //
+  // Also note: this does not actually destroy the instance.
+  // instead, it frees the held memory, removes the stream
+  // from the parent session, and returns the instance to
+  // the FreeList so that it can be reused.
+  inline void Destroy();
+
+  // Returns true if this stream has been destroyed
+  inline bool IsDestroyed() const {
+    return (flags_ & NGHTTP2_STREAM_DESTROYED) == NGHTTP2_STREAM_DESTROYED;
+  }
+
+  inline bool IsDestroying() const {
+    return (flags_ & NGHTTP2_STREAM_DESTROYING) == NGHTTP2_STREAM_DESTROYING;
+  }
+
+  // Queue outbound chunks of data to be sent on this stream
   inline int Write(
       nghttp2_stream_write_t* req,
       const uv_buf_t bufs[],
       unsigned int nbufs,
       nghttp2_stream_write_cb cb);
 
+  // Initiate a response on this stream.
   inline int SubmitResponse(nghttp2_nv* nva,
                             size_t len,
                             bool emptyPayload = false);
 
+  // Submit informational headers for this stream
   inline int SubmitInfo(nghttp2_nv* nva, size_t len);
+
+  // Submit a PRIORITY frame for this stream
   inline int SubmitPriority(nghttp2_priority_spec* prispec,
                             bool silent = false);
+
+  // Submits an RST_STREAM frame using the given code
   inline int SubmitRstStream(const uint32_t code);
+
+  // Submits a PUSH_PROMISE frame with this stream as the parent.
   inline int SubmitPushPromise(
       nghttp2_nv* nva,
       size_t len,
-      std::shared_ptr<Nghttp2Stream>* assigned = nullptr,
+      Nghttp2Stream** assigned = nullptr,
       bool writable = true);
 
-  inline int Shutdown();
+  // Marks the Writable side of the stream as being shutdown
+  inline void Shutdown() {
+    flags_ |= NGHTTP2_STREAM_FLAG_SHUT;
+    nghttp2_session_resume_data(session_->session(), id_);
+  }
+
+  // Returns true if this stream is writable.
+  inline bool IsWritable() const {
+    return (flags_ & NGHTTP2_STREAM_FLAG_SHUT) == 0;
+  }
+
+  // Start Reading. If there are queued data chunks, they are pushed into
+  // the session to be emitted at the JS side
   inline void ReadStart();
+
+  // Stop/Pause Reading.
   inline void ReadStop();
 
-  inline bool IsWritable() const;
-  inline bool IsReadable() const;
-  inline bool IsReading() const;
+  // Returns true if reading is paused
+  inline bool IsPaused() const {
+    return (flags_ & NGHTTP2_STREAM_READ_PAUSED) == NGHTTP2_STREAM_READ_PAUSED;
+  }
 
-  inline int32_t id() const;
+  // Returns true if this stream is in the reading state, which occurs when
+  // the NGHTTP2_STREAM_READ_START flag has been set and the
+  // NGHTTP2_STREAM_READ_PAUSED flag is *not* set.
+  inline bool IsReading() const {
+    return ((flags_ & NGHTTP2_STREAM_READ_START) == NGHTTP2_STREAM_READ_START)
+           && ((flags_ & NGHTTP2_STREAM_READ_PAUSED) == 0);
+  }
+
+  inline void Close(int32_t code) {
+    flags_ |= NGHTTP2_STREAM_CLOSED;
+    code_ = code;
+    session_->OnStreamClose(id_, code);
+  }
+
+  // Returns true if this stream has been closed either by receiving or
+  // sending an RST_STREAM frame.
+  inline bool IsClosed() const {
+    return (flags_ & NGHTTP2_STREAM_CLOSED) == NGHTTP2_STREAM_CLOSED;
+  }
+
+  // Returns the RST_STREAM code used to close this stream
+  inline int32_t code() const {
+    return code_;
+  }
+
+  // Returns the stream identifier for this stream
+  inline int32_t id() const {
+    return id_;
+  }
+
+  inline nghttp2_header_list* headers() const {
+    return current_headers_head_;
+  }
+
+  inline nghttp2_headers_category headers_category() const {
+    return current_headers_category_;
+  }
+
+  inline void FreeHeaders();
+
+  void StartHeaders(nghttp2_headers_category category) {
+    // We shouldn't be in the middle of a headers block already.
+    // Something bad happened if this fails
+    CHECK_EQ(current_headers_head_, nullptr);
+    CHECK_EQ(current_headers_tail_, nullptr);
+    current_headers_category_ = category;
+  }
 
  private:
+  // The Parent HTTP/2 Session
   Nghttp2Session* session_ = nullptr;
+
+  // The Stream Identifier
   int32_t id_ = 0;
+
+  // Internal state flags
   int flags_ = 0;
+
+  // Outbound Data... This is the data written by the JS layer that is
+  // waiting to be written out to the socket.
   nghttp2_stream_write_queue* queue_head_ = nullptr;
   nghttp2_stream_write_queue* queue_tail_ = nullptr;
   unsigned int queue_head_index_ = 0;
   size_t queue_head_offset_ = 0;
+
+  // The Current Headers block... As headers are received for this stream,
+  // they are temporarily stored here until the OnFrameReceived is called
+  // signalling the end of the HEADERS frame
   nghttp2_header_list* current_headers_head_ = nullptr;
   nghttp2_header_list* current_headers_tail_ = nullptr;
   nghttp2_headers_category current_headers_category_ = NGHTTP2_HCAT_HEADERS;
-  nghttp2_pending_data_chunks_cb* current_data_chunks_cb_ = nullptr;
-  int reading_ = -1;
+
+  // Inbound Data... This is the data received via DATA frames for this stream.
+  nghttp2_data_chunk_t* data_chunks_head_ = nullptr;
+  nghttp2_data_chunk_t* data_chunks_tail_ = nullptr;
+
+  // The RST_STREAM code used to close this stream
+  int32_t code_ = NGHTTP2_NO_ERROR;
+
   int32_t prev_local_window_size_ = 65535;
 
   friend class Nghttp2Session;
@@ -313,7 +383,7 @@ class Nghttp2Stream : public std::enable_shared_from_this<Nghttp2Stream> {
 struct nghttp2_stream_write_t {
   void* data;
   int status;
-  std::shared_ptr<Nghttp2Stream> handle;
+  Nghttp2Stream* handle;
   nghttp2_stream_write_queue* item;
 };
 

@@ -29,15 +29,21 @@ server.on('listening', common.mustCall(function() {
              'socket has not been destroyed before destroy is called');
 
       // Ensure that 'close' event is emitted
-      client.on('close', common.mustCall(() => {}));
+      client.on('close', common.mustCall());
 
       destroyCallback(client);
 
       assert(!client.socket, 'client.socket undefined after destroy is called');
-      assert(client.destroyed,
-             'client marked as destroyed after destroy is called');
-      assert(socket.destroyed,
-             'socket marked as destroyed after destroy is called');
+
+      // Must must be closed
+      client.on('close', common.mustCall(() => {
+        assert(client.destroyed);
+      }));
+
+      // socket will close on process.nextTick
+      socket.on('close', common.mustCall(() => {
+        assert(socket.destroyed);
+      }));
 
       if (--remaining === 0) {
         server.close();
