@@ -32,15 +32,8 @@ server.listen(0, common.mustCall(function() {
 
         pushResponse.write('This is a server-initiated response');
 
-        // TODO(sebdeckers) Remove this forced delay workaround.
-        // See possibly related bugs:
-        // - https://github.com/nodejs/http2/issues/72
-        // - https://github.com/nodejs/http2/issues/77
-
-        // pushResponse.end();
-        // response.end();
-        setTimeout(() => pushResponse.end(), 100);
-        setTimeout(() => response.end(), 200);
+        pushResponse.end();
+        response.end();
       })
     );
   }));
