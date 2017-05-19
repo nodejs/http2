@@ -555,7 +555,9 @@ class SessionShutdownWrap : public ReqWrap<uv_idle_t> {
 class SessionSendBuffer : public WriteWrap {
  public:
   static void OnDone(WriteWrap* req, int status) {
-    ::delete req;
+    SessionSendBuffer* wrap =
+      static_cast<SessionSendBuffer*>(req);
+    wrap->cleanup();
   }
 
   SessionSendBuffer(Environment* env,
@@ -565,13 +567,15 @@ class SessionSendBuffer : public WriteWrap {
     buffer_ = uv_buf_init(new char[size], size);
   }
 
-  ~SessionSendBuffer() {
-    delete[] buffer_.base;
-  }
+  ~SessionSendBuffer() {}
 
   uv_buf_t buffer_;
 
  protected:
+  void cleanup() {
+    delete[] buffer_.base;
+  }
+
   // This is just to avoid the compiler error. This should not be called
   void operator delete(void* ptr) { UNREACHABLE(); }
 };
