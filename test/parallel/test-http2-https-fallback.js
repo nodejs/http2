@@ -1,6 +1,11 @@
 'use strict';
 
-const { fixturesDir, mustCall, mustNotCall } = require('../common');
+const {
+  fixturesDir,
+  mustCall,
+  mustNotCall,
+  platformTimeout
+} = require('../common');
 const { strictEqual } = require('assert');
 const { join } = require('path');
 const { readFileSync } = require('fs');
@@ -8,8 +13,20 @@ const { createSecureContext } = require('tls');
 const { createSecureServer, connect } = require('http2');
 const { get } = require('https');
 const { parse } = require('url');
+const { connect: tls } = require('tls');
 
 const countdown = (count, done) => () => --count === 0 && done();
+
+function expire(callback, ttl) {
+  const timeout = setTimeout(
+    mustNotCall('Callback expired'),
+    platformTimeout(ttl)
+  );
+  return function expire() {
+    clearTimeout(timeout);
+    return callback();
+  };
+}
 
 function loadKey(keyname) {
   return readFileSync(join(fixturesDir, 'keys', keyname));
@@ -68,7 +85,7 @@ function onSession(session) {
   server.listen(0);
 
   server.on('listening', mustCall(() => {
-    const port = server.address().port;
+    const { port } = server.address();
     const origin = `https://localhost:${port}`;
 
     const cleanup = countdown(2, () => server.close());
@@ -110,13 +127,17 @@ function onSession(session) {
     mustCall(onRequest)
   );
 
+  server.on('unknownProtocol', mustCall((socket) => {
+    socket.destroy();
+  }, 2));
+
   server.listen(0);
 
   server.on('listening', mustCall(() => {
-    const port = server.address().port;
+    const { port } = server.address();
     const origin = `https://localhost:${port}`;
 
-    const cleanup = countdown(2, () => server.close());
+    const cleanup = countdown(3, () => server.close());
 
     // HTTP/2 client
     connect(
@@ -128,5 +149,9 @@ function onSession(session) {
     // HTTP/1.1 client
     get(Object.assign(parse(origin), clientOptions), mustNotCall())
       .on('error', mustCall(cleanup));
+
+    // Incompatible ALPN TLS client
+    tls(Object.assign({ port, ALPNProtocols: ['fake'] }, clientOptions))
+      .on('error', expire(mustCall(cleanup), 200));
   }));
 }
