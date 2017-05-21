@@ -437,7 +437,7 @@ an `Http2Stream`.
 
 #### Event: 'fetchTrailers'
 
-The `'fetchTrailers`' event is emitted by the `Http2Stream` immediately after
+The `'fetchTrailers'` event is emitted by the `Http2Stream` immediately after
 queuing the last chunk of payload data to be sent. The listener callback is
 passed a single object (with a `null` prototype) that the listener may used
 to specify the trailing header fields to send to the peer.
@@ -696,7 +696,7 @@ an `Http2Session` object. If no listener is registered for this event, an
 
 #### Event: 'socketError'
 
-The `'socketError`' event is emitted when an `'error'` event is emitted by
+The `'socketError'` event is emitted when an `'error'` event is emitted by
 a `Socket` associated with the server. If no listener is registered for this
 event, an `'error'` event is emitted.
 
@@ -745,9 +745,16 @@ an `Http2Session` object. If no listener is registered for this event, an
 
 #### Event: 'socketError'
 
-The `'socketError`' event is emitted when an `'error'` event is emitted by
+The `'socketError'` event is emitted when an `'error'` event is emitted by
 a `Socket` associated with the server. If no listener is registered for this
 event, an `'error'` event is emitted on the `Socket` instance instead.
+
+#### Event: 'unknownProtocol'
+
+The `'unknownProtocol'` event is emitted when a connecting client fails to
+negotiate an allowed protocol (i.e. HTTP/2 or HTTP/1.1). The event handler
+receives the socket for handling. If no listener is registered for this event,
+the connection is terminated. See the
 
 #### Event: 'stream'
 
@@ -864,7 +871,7 @@ server.listen(80);
 * `options` {Object}
   * `allowHTTP1` {boolean} Incoming client connections that do not support
     HTTP/2 will be downgraded to HTTP/1.x when set to `true`. The default value
-    is `false`, which rejects non-HTTP/2 client connections.
+    is `false`. See the [`'unknownProtocol'`][] event.
   * `maxDefaultDynamicTableSize` {number} (TODO: Add detail)
   * `maxReservedRemoteStreams` {number} (TODO: Add detail)
   * `maxSendHeaderBlockLength` {number} (TODO: Add detail)
@@ -1111,3 +1118,4 @@ TBD
 [Settings Object]: #http2_settings_object
 [Using options.selectPadding]: #http2_using_options_selectpadding
 [error code]: #error_codes
+[`'unknownProtocol'`]: #http2_event_unknownprotocol
