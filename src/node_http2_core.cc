@@ -13,6 +13,8 @@ int Nghttp2Session::OnBeginHeadersCallback(nghttp2_session* session,
   int32_t id = (frame->hd.type == NGHTTP2_PUSH_PROMISE) ?
     frame->push_promise.promised_stream_id :
     frame->hd.stream_id;
+  DEBUG_HTTP2("Nghttp2Session %d: beginning headers for stream %d\n",
+              handle->session_type_, id);
   Nghttp2Stream* stream = handle->FindStream(id);
   if (stream == nullptr) {
     Nghttp2Stream::Init(id, handle, frame->headers.cat);
@@ -52,6 +54,8 @@ int Nghttp2Session::OnFrameReceive(nghttp2_session* session,
                                    const nghttp2_frame* frame,
                                    void* user_data) {
   Nghttp2Session* handle = static_cast<Nghttp2Session*>(user_data);
+  DEBUG_HTTP2("Nghttp2Session %d: complete frame received: type: %d\n",
+              handle->session_type_, frame->hd.type);
   switch (frame->hd.type) {
     case NGHTTP2_DATA:
       handle->HandleDataFrame(frame);
@@ -81,6 +85,8 @@ int Nghttp2Session::OnStreamClose(nghttp2_session *session,
                                   uint32_t code,
                                   void *user_data) {
   Nghttp2Session* handle = static_cast<Nghttp2Session*>(user_data);
+  DEBUG_HTTP2("Nghttp2Session %d: stream %d closed, code: %d\n",
+              handle->session_type_, id, code);
   Nghttp2Stream* stream = handle->FindStream(id);
   // Intentionally ignore the callback if the stream does not exist
   if (stream != nullptr)
@@ -96,6 +102,8 @@ int Nghttp2Session::OnDataChunkReceived(nghttp2_session *session,
                                         size_t len,
                                         void *user_data) {
   Nghttp2Session* handle = static_cast<Nghttp2Session*>(user_data);
+  DEBUG_HTTP2("Nghttp2Session %d: buffering data chunk for stream %d, size: "
+              "%d, flags: %d\n", handle->session_type_, id, len, flags);
   Nghttp2Stream* stream = handle->FindStream(id);
   nghttp2_data_chunk_t* chunk = data_chunk_free_list.pop();
   chunk->buf = uv_buf_init(Malloc(len), len);
@@ -118,7 +126,10 @@ ssize_t Nghttp2Session::OnSelectPadding(nghttp2_session* session,
                                         void* user_data) {
   Nghttp2Session* handle = static_cast<Nghttp2Session*>(user_data);
   assert(handle->HasGetPaddingCallback());
-  return handle->GetPadding(frame->hd.length, maxPayloadLen);
+  ssize_t padding = handle->GetPadding(frame->hd.length, maxPayloadLen);
+    DEBUG_HTTP2("Nghttp2Session %d: using padding, size: %d\n",
+                handle->session_type_, padding);
+  return padding;
 }
 
 // Called by nghttp2 to collect the data to pack within a DATA frame.
@@ -132,11 +143,15 @@ ssize_t Nghttp2Session::OnStreamRead(nghttp2_session* session,
                                      nghttp2_data_source* source,
                                      void* user_data) {
   Nghttp2Session* handle = static_cast<Nghttp2Session*>(user_data);
+  DEBUG_HTTP2("Nghttp2Session %d: reading outbound data for stream %d\n",
+              handle->session_type_, id);
   Nghttp2Stream* stream = handle->FindStream(id);
   size_t remaining = length;
   size_t offset = 0;
 
   while (stream->queue_head_ != nullptr) {
+    DEBUG_HTTP2("Nghttp2Session %d: processing outbound data chunk\n",
+                handle->session_type_);
     nghttp2_stream_write_queue* head = stream->queue_head_;
     while (stream->queue_head_index_ < head->nbufs) {
       if (remaining == 0) {
@@ -170,14 +185,20 @@ ssize_t Nghttp2Session::OnStreamRead(nghttp2_session* session,
  end:
   int writable = stream->queue_head_ != nullptr || stream->IsWritable();
   if (offset == 0 && writable && stream->queue_head_ == nullptr) {
+    DEBUG_HTTP2("Nghttp2Session %d: deferring stream %d\n",
+                handle->session_type_, id);
     return NGHTTP2_ERR_DEFERRED;
   }
   if (!writable) {
+    DEBUG_HTTP2("Nghttp2Session %d: no more data for stream %d\n",
+                handle->session_type_, id);
     *flags |= NGHTTP2_DATA_FLAG_EOF;
 
     MaybeStackBuffer<nghttp2_nv> trailers;
     handle->OnTrailers(stream, &trailers);
     if (trailers.length() > 0) {
+      DEBUG_HTTP2("Nghttp2Session %d: sending trailers for stream %d, "
+                  "count: %d\n", handle->session_type_, id, trailers.length());
       *flags |= NGHTTP2_DATA_FLAG_NO_END_STREAM;
       nghttp2_submit_trailer(session,
                              stream->id(),
