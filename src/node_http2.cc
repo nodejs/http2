@@ -111,11 +111,13 @@ void Http2Session::OnFreeSession() {
 
 ssize_t Http2Session::OnMaxFrameSizePadding(size_t frameLen,
                                             size_t maxPayloadLen) {
+  DEBUG_HTTP2("Http2Session: using max frame size padding\n");
   return maxPayloadLen;
 }
 
 ssize_t Http2Session::OnCallbackPadding(size_t frameLen,
                                         size_t maxPayloadLen) {
+  DEBUG_HTTP2("Http2Session: using callback padding\n");
   Isolate* isolate = env()->isolate();
   Local<Context> context = env()->context();
 
@@ -146,7 +148,9 @@ void Http2Session::SetNextStreamID(const FunctionCallbackInfo<Value>& args) {
   Http2Session* session;
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
   nghttp2_session* s = session->session();
-  nghttp2_session_set_next_stream_id(s, args[0]->Int32Value());
+  int32_t id = args[0]->Int32Value();
+  DEBUG_HTTP2("Http2Session: setting next stream id to %d\n", id);
+  nghttp2_session_set_next_stream_id(s, id);
 }
 
 void HttpErrorString(const FunctionCallbackInfo<Value>& args) {
@@ -193,6 +197,7 @@ void PackSettings(const FunctionCallbackInfo<Value>& args) {
 
 // Used to fill in the spec defined initial values for each setting.
 void RefreshDefaultSettings(const FunctionCallbackInfo<Value>& args) {
+  DEBUG_HTTP2("Http2Session: refreshing default settings\n");
   Environment* env = Environment::GetCurrent(args);
   int32_t* const buffer = env->http2_default_settings_buffer();
   buffer[IDX_SETTINGS_HEADER_TABLE_SIZE] =
@@ -207,6 +212,7 @@ void RefreshDefaultSettings(const FunctionCallbackInfo<Value>& args) {
 
 template <get_setting fn>
 void RefreshSettings(const FunctionCallbackInfo<Value>& args) {
+  DEBUG_HTTP2("Http2Session: refreshing settings for session\n");
   CHECK_EQ(args.Length(), 1);
   CHECK(args[0]->IsObject());
   Http2Session* session;
@@ -231,6 +237,7 @@ void RefreshSettings(const FunctionCallbackInfo<Value>& args) {
 
 // Used to fill in the spec defined initial values for each setting.
 void RefreshSessionState(const FunctionCallbackInfo<Value>& args) {
+  DEBUG_HTTP2("Http2Session: refreshing session state\n");
   CHECK_EQ(args.Length(), 1);
   CHECK(args[0]->IsObject());
   Environment* env = Environment::GetCurrent(args);
@@ -263,9 +270,10 @@ void RefreshStreamState(const FunctionCallbackInfo<Value>& args) {
   CHECK_EQ(args.Length(), 2);
   CHECK(args[0]->IsObject());
   CHECK(args[1]->IsNumber());
+  int32_t id = args[1]->Int32Value();
+  DEBUG_HTTP2("Http2Session: refreshing stream %d state\n", id);
   Http2Session* session;
   ASSIGN_OR_RETURN_UNWRAP(&session, args[0].As<Object>());
-  int32_t id = args[1]->Int32Value();
   nghttp2_session* s = session->session();
   Nghttp2Stream* stream;
 
@@ -313,7 +321,7 @@ void Http2Session::New(const FunctionCallbackInfo<Value>& args) {
 
   nghttp2_session_type type =
     static_cast<nghttp2_session_type>(args[0]->IntegerValue());
-
+  DEBUG_HTTP2("Http2Session: creating a session of type: %d\n", type);
   new Http2Session(env, args.This(), type, args[1]);
 }
 
@@ -327,6 +335,7 @@ void Http2Session::Consume(const FunctionCallbackInfo<Value>& args) {
 }
 
 void Http2Session::Destroy(const FunctionCallbackInfo<Value>& args) {
+  DEBUG_HTTP2("Http2Session: destroying session\n");
   Http2Session* session;
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
   session->Unconsume();
@@ -343,6 +352,9 @@ void Http2Session::SubmitPriority(const FunctionCallbackInfo<Value>& args) {
   int32_t weight = args[2]->Int32Value();
   bool exclusive = args[3]->BooleanValue();
   bool silent = args[4]->BooleanValue();
+  DEBUG_HTTP2("Http2Session: submitting priority for stream %d: "
+              "parent: %d, weight: %d, exclusive: %d, silent: %d\n",
+              id, parent, weight, exclusive, silent);
   CHECK_GT(id, 0);
   CHECK_GE(parent, 0);
   CHECK_GE(weight, 0);
@@ -394,13 +406,17 @@ void Http2Session::SubmitRstStream(const FunctionCallbackInfo<Value>& args) {
   Http2Session* session;
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
 
+  int32_t id = args[0]->Int32Value();
+  uint32_t code = args[1]->Uint32Value();
+
   Nghttp2Stream* stream;
-  if (!(stream = session->FindStream(args[0]->Int32Value()))) {
+  if (!(stream = session->FindStream(id))) {
     // invalid stream
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
-  args.GetReturnValue().Set(
-      stream->SubmitRstStream(args[1]->Uint32Value()));
+  DEBUG_HTTP2("Http2Session: sending rst_stream for stream %d, code: %d\n",
+              id, code);
+  args.GetReturnValue().Set(stream->SubmitRstStream(code));
 }
 
 void Http2Session::SubmitRequest(const FunctionCallbackInfo<Value>& args) {
@@ -418,19 +434,24 @@ void Http2Session::SubmitRequest(const FunctionCallbackInfo<Value>& args) {
 
   Local<Array> headers = args[0].As<Array>();
   bool endStream = args[1]->BooleanValue();
-  int32_t parent_id = args[2]->Int32Value();
+  int32_t parent = args[2]->Int32Value();
   int32_t weight = args[3]->Int32Value();
   bool exclusive = args[4]->BooleanValue();
 
+  DEBUG_HTTP2("Http2Session: submitting request: headers: %d, end-stream: %d, "
+              "parent: %d, weight: %d, exclusive: %d", headers->Length(),
+              endStream, parent, weight, exclusive);
+
   nghttp2_priority_spec prispec;
-  nghttp2_priority_spec_init(&prispec, parent_id, weight, exclusive ? 1 : 0);
+  nghttp2_priority_spec_init(&prispec, parent, weight, exclusive ? 1 : 0);
 
   Headers list(isolate, headers);
 
-  args.GetReturnValue().Set(
-      session->Nghttp2Session::SubmitRequest(&prispec,
-                                             *list, list.length(),
-                                             nullptr, endStream));
+  int32_t ret = session->Nghttp2Session::SubmitRequest(&prispec,
+                                                       *list, list.length(),
+                                                       nullptr, endStream);
+  DEBUG_HTTP2("Http2Session: request submitted, response: %d\n", ret);
+  args.GetReturnValue().Set(ret);
 }
 
 void Http2Session::SubmitResponse(const FunctionCallbackInfo<Value>& args) {
@@ -444,10 +465,14 @@ void Http2Session::SubmitResponse(const FunctionCallbackInfo<Value>& args) {
   Environment* env = session->env();
   Isolate* isolate = env->isolate();
 
+  int32_t id = args[0]->Int32Value();
   Local<Array> headers = args[1].As<Array>();
   bool endStream = args[2]->BooleanValue();
 
-  if (!(stream = session->FindStream(args[0]->Int32Value()))) {
+  DEBUG_HTTP2("Http2Session: submitting response for stream %d: headers: %d, "
+              "end-stream: %d\n", id, headers->Length(), endStream);
+
+  if (!(stream = session->FindStream(id))) {
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
 
@@ -468,11 +493,16 @@ void Http2Session::SendHeaders(const FunctionCallbackInfo<Value>& args) {
   Environment* env = session->env();
   Isolate* isolate = env->isolate();
 
-  if (!(stream = session->FindStream(args[0]->Int32Value()))) {
+  int32_t id = args[0]->Int32Value();
+  Local<Array> headers = args[1].As<Array>();
+
+  DEBUG_HTTP2("Http2Session: sending informational headers for stream %d, "
+              "count: %d\n", id, headers->Length());
+
+  if (!(stream = session->FindStream(id))) {
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
 
-  Local<Array> headers = args[1].As<Array>();
   Headers list(isolate, headers);
 
   args.GetReturnValue().Set(stream->SubmitInfo(*list, list.length()));
@@ -483,7 +513,9 @@ void Http2Session::ShutdownStream(const FunctionCallbackInfo<Value>& args) {
   Http2Session* session;
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
   Nghttp2Stream* stream;
-  if (!(stream = session->FindStream(args[0]->Int32Value()))) {
+  int32_t id = args[0]->Int32Value();
+  DEBUG_HTTP2("Http2Session: shutting down stream %d\n", id);
+  if (!(stream = session->FindStream(id))) {
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
   stream->Shutdown();
@@ -517,10 +549,16 @@ void Http2Session::StreamReadStop(const FunctionCallbackInfo<Value>& args) {
 static void DoSessionShutdown(SessionShutdownWrap* req) {
   int status;
   if (req->graceful()) {
+    DEBUG_HTTP2("Http2Session: initiating graceful session shutdown. "
+                "last-stream-id: %d, code: %d\n",
+                req->lastStreamID(), req->errorCode());
     status = nghttp2_session_terminate_session2(req->handle()->session(),
                                                 req->lastStreamID(),
                                                 req->errorCode());
   } else {
+    DEBUG_HTTP2("Http2Session: initiating immediate shutdown. "
+                "last-stream-id: %d, code: %d, opaque-data: %d\n",
+                req->lastStreamID(), req->errorCode(), req->opaqueDataLength());
     status = nghttp2_submit_goaway(req->handle()->session(),
                                    NGHTTP2_FLAG_NONE,
                                    req->lastStreamID(),
@@ -593,6 +631,7 @@ void Http2Session::DestroyStream(const FunctionCallbackInfo<Value>& args) {
   CHECK_EQ(args.Length(), 1);
   CHECK(args[0]->IsNumber());
   int32_t id = args[0]->Int32Value();
+  DEBUG_HTTP2("Http2Session: destroy stream %d\n", id);
   Nghttp2Stream* stream;
   if (!(stream = session->FindStream(id))) {
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
@@ -610,17 +649,23 @@ void Http2Session::SubmitPushPromise(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[1]->IsArray());  // headers array
 
   Nghttp2Stream* parent;
+  int32_t id = args[0]->Int32Value();
+  Local<Array> headers = args[1].As<Array>();
+  bool endStream = args[2]->BooleanValue();
 
-  if (!(parent = session->FindStream(args[0]->Int32Value()))) {
+  DEBUG_HTTP2("Http2Session: submitting push promise for stream %d: "
+              "end-stream: %d, headers: %d\n", id, endStream,
+              headers->Length());
+
+  if (!(parent = session->FindStream(id))) {
     return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
   }
 
-  Local<Array> headers = args[1].As<Array>();
-  bool endStream = args[2]->BooleanValue();
   Headers list(isolate, headers);
 
   int32_t ret = parent->SubmitPushPromise(*list, list.length(),
                                           nullptr, endStream);
+  DEBUG_HTTP2("Http2Session: push promise submitted, ret: %d\n", ret);
   args.GetReturnValue().Set(ret);
 }
 
@@ -674,7 +719,6 @@ void Http2Session::Send(uv_buf_t* buf, size_t length) {
   if (stream_ == nullptr || !stream_->IsAlive() || stream_->IsClosing()) {
     return;
   }
-
   HandleScope scope(env()->isolate());
   SessionSendBuffer* req = ContainerOf(&SessionSendBuffer::buffer_, buf);
   uv_buf_t actual = uv_buf_init(buf->base, length);
@@ -685,6 +729,8 @@ void Http2Session::Send(uv_buf_t* buf, size_t length) {
 
 void Http2Session::OnTrailers(Nghttp2Stream* stream,
                               MaybeStackBuffer<nghttp2_nv>* trailers) {
+  DEBUG_HTTP2("Http2Session: prompting for trailers on stream %d\n",
+              stream->id());
   Local<Context> context = env()->context();
   Context::Scope context_scope(context);
   Isolate* isolate = env()->isolate();
@@ -1020,6 +1066,7 @@ void Http2Session::OnStreamReadImpl(ssize_t nread,
 
 
 void Http2Session::Consume(Local<External> external) {
+  DEBUG_HTTP2("Http2Session: consuming socket\n");
   CHECK(prev_alloc_cb_.is_empty());
   StreamBase* stream = static_cast<StreamBase*>(external->Value());
   CHECK_NE(stream, nullptr);
@@ -1033,6 +1080,7 @@ void Http2Session::Consume(Local<External> external) {
 
 
 void Http2Session::Unconsume() {
+  DEBUG_HTTP2("Http2Session: unconsuming socket\n");
   if (prev_alloc_cb_.is_empty())
     return;
   stream_->set_alloc_cb(prev_alloc_cb_);
