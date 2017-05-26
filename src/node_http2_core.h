@@ -8,10 +8,32 @@
 #include "uv.h"
 #include "nghttp2/nghttp2.h"
 
+#include <stdio.h>
 #include <unordered_map>
 
 namespace node {
 namespace http2 {
+
+#ifdef NODE_DEBUG_HTTP2
+
+// Adapted from nghttp2 own debug printer
+static inline void _debug_vfprintf(const char *fmt, va_list args) {
+  vfprintf(stderr, fmt, args);
+}
+
+void inline debug_vfprintf(const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  _debug_vfprintf(format, args);
+  va_end(args);
+}
+
+#define DEBUG_HTTP2(...) debug_vfprintf(__VA_ARGS__);
+#else
+#define DEBUG_HTTP2(...)                                                       \
+  do {                                                                         \
+  } while (0)
+#endif
 
 class Nghttp2Session;
 class Nghttp2Stream;
@@ -216,6 +238,7 @@ class Nghttp2Stream {
     CHECK_EQ(data_chunks_tail_, nullptr);
     CHECK_EQ(current_headers_head_, nullptr);
     CHECK_EQ(current_headers_tail_, nullptr);
+    DEBUG_HTTP2("Nghttp2Stream: freed\n");
   }
 
   // Resets the state of the stream instance to defaults
@@ -305,9 +328,11 @@ class Nghttp2Stream {
   }
 
   inline void Close(int32_t code) {
+    DEBUG_HTTP2("Nghttp2Stream %d: closing with code %d\n", id_, code);
     flags_ |= NGHTTP2_STREAM_CLOSED;
     code_ = code;
     session_->OnStreamClose(id_, code);
+    DEBUG_HTTP2("Nghttp2Stream %d: closed\n", id_);
   }
 
   // Returns true if this stream has been closed either by receiving or
@@ -337,6 +362,8 @@ class Nghttp2Stream {
   inline void FreeHeaders();
 
   void StartHeaders(nghttp2_headers_category category) {
+    DEBUG_HTTP2("Nghttp2Stream %d: starting headers, category: %d\n",
+                id_, category);
     // We shouldn't be in the middle of a headers block already.
     // Something bad happened if this fails
     CHECK_EQ(current_headers_head_, nullptr);

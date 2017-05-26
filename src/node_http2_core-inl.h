@@ -35,12 +35,15 @@ extern Freelist<nghttp2_data_chunks_t, FREELIST_MAX>
 
 // See: https://nghttp2.org/documentation/nghttp2_submit_shutdown_notice.html
 inline void Nghttp2Session::SubmitShutdownNotice() {
+  DEBUG_HTTP2("Nghttp2Session %d: submitting shutdown notice\n", session_type_);
   nghttp2_submit_shutdown_notice(session_);
 }
 
 // Sends a SETTINGS frame on the current session
 inline int Nghttp2Session::SubmitSettings(const nghttp2_settings_entry iv[],
                                           size_t niv) {
+  DEBUG_HTTP2("Nghttp2Session %d: submitting settings, count: %d\n",
+              session_type_, niv);
   return nghttp2_submit_settings(session_, NGHTTP2_FLAG_NONE, iv, niv);
 }
 
@@ -48,8 +51,10 @@ inline int Nghttp2Session::SubmitSettings(const nghttp2_settings_entry iv[],
 inline Nghttp2Stream* Nghttp2Session::FindStream(int32_t id) {
   auto s = streams_.find(id);
   if (s != streams_.end()) {
+    DEBUG_HTTP2("Nghttp2Session %d: stream %d found\n", session_type_, id);
     return s->second;
   } else {
+    DEBUG_HTTP2("Nghttp2Session %d: stream %d not found\n", session_type_, id);
     return nullptr;
   }
 }
@@ -59,11 +64,15 @@ inline Nghttp2Stream* Nghttp2Session::FindStream(int32_t id) {
 // to the JS side only when the frame is fully processed.
 inline void Nghttp2Session::HandleDataFrame(const nghttp2_frame* frame) {
   int32_t id = frame->hd.stream_id;
+  DEBUG_HTTP2("Nghttp2Session %d: handling data frame for stream %d\n",
+              session_type_, id);
   Nghttp2Stream* stream = this->FindStream(id);
   // If the stream does not exist, something really bad happened
   CHECK_NE(stream, nullptr);
 
   while (stream->data_chunks_head_ != nullptr) {
+    DEBUG_HTTP2("Nghttp2Session %d: emitting data chunk for stream %d\n",
+                session_type_, id);
     nghttp2_data_chunk_t* item = stream->data_chunks_head_;
     stream->data_chunks_head_ = item->next;
     OnDataChunk(stream, item);
@@ -79,6 +88,8 @@ inline void Nghttp2Session::HandleDataFrame(const nghttp2_frame* frame) {
 inline void Nghttp2Session::HandleHeadersFrame(const nghttp2_frame* frame) {
   int32_t id = (frame->hd.type == NGHTTP2_PUSH_PROMISE) ?
     frame->push_promise.promised_stream_id : frame->hd.stream_id;
+  DEBUG_HTTP2("Nghttp2Session %d: handling headers frame for stream %d\n",
+              session_type_, id);
   Nghttp2Stream* stream = FindStream(id);
   // If the stream does not exist, something really bad happened
   CHECK_NE(stream, nullptr);
@@ -93,6 +104,8 @@ inline void Nghttp2Session::HandleHeadersFrame(const nghttp2_frame* frame) {
 inline void Nghttp2Session::HandlePriorityFrame(const nghttp2_frame* frame) {
   nghttp2_priority priority_frame = frame->priority;
   int32_t id = frame->hd.stream_id;
+  DEBUG_HTTP2("Nghttp2Session %d: handling priority frame for stream %d\n",
+              session_type_, id);
   // Ignore the priority frame if stream ID is <= 0
   // This actually should never happen because nghttp2 should treat this as
   // an error condition that terminates the session.
@@ -112,6 +125,8 @@ inline void Nghttp2Session::SendPendingData() {
   assert(current);
   size_t remaining = current->len;
   while ((amount = nghttp2_session_mem_send(session_, &data)) > 0) {
+    DEBUG_HTTP2("Nghttp2Session %d: sending nghttp data: %d\n",
+                session_type_, amount);
     while (amount > 0) {
       if (amount > remaining) {
         // The amount copied does not fit within the remaining available
@@ -144,6 +159,7 @@ inline int Nghttp2Session::Init(uv_loop_t* loop,
                                const nghttp2_session_type type,
                                nghttp2_option* options,
                                nghttp2_mem* mem) {
+  DEBUG_HTTP2("Nghttp2Session %d: initializing session\n", type);
   loop_ = loop;
   session_type_ = type;
   int ret = 0;
@@ -190,7 +206,7 @@ inline int Nghttp2Session::Init(uv_loop_t* loop,
 
 inline int Nghttp2Session::Free() {
   assert(session_ != nullptr);
-
+  DEBUG_HTTP2("Nghttp2Session %d: freeing session\n", session_type_);
   // Stop the loop
   uv_prepare_stop(&prep_);
   auto PrepClose = [](uv_handle_t* handle) {
@@ -199,6 +215,8 @@ inline int Nghttp2Session::Free() {
                     reinterpret_cast<uv_prepare_t*>(handle));
 
     session->OnFreeSession();
+    DEBUG_HTTP2("Nghttp2Session %d: session is free\n",
+            session->session_type_);
   };
   uv_close(reinterpret_cast<uv_handle_t*>(&prep_), PrepClose);
 
@@ -242,6 +260,7 @@ inline Nghttp2Stream* Nghttp2Stream::Init(
     int32_t id,
     Nghttp2Session* session,
     nghttp2_headers_category category) {
+  DEBUG_HTTP2("Nghttp2Stream %d: initializing stream\n", id);
   Nghttp2Stream* stream = stream_free_list.pop();
   stream->ResetState(id, session, category);
   session->AddStream(stream);
@@ -254,6 +273,7 @@ inline void Nghttp2Stream::ResetState(
     int32_t id,
     Nghttp2Session* session,
     nghttp2_headers_category category) {
+  DEBUG_HTTP2("Nghttp2Stream %d: resetting stream state\n", id);
   session_ = session;
   queue_head_ = nullptr;
   queue_tail_ = nullptr;
@@ -272,6 +292,7 @@ inline void Nghttp2Stream::ResetState(
 
 
 inline void Nghttp2Stream::Destroy() {
+    DEBUG_HTTP2("Nghttp2Stream %d: destroying stream\n", id_);
   // Do nothing if this stream instance is already destroyed
   if (IsDestroyed() || IsDestroying())
     return;
@@ -301,7 +322,9 @@ inline void Nghttp2Stream::Destroy() {
 }
 
 inline void Nghttp2Stream::FreeHeaders() {
+  DEBUG_HTTP2("Nghttp2Stream %d: freeing headers\n", id_);
   while (current_headers_head_ != nullptr) {
+    DEBUG_HTTP2("Nghttp2Stream %d: freeing header item\n", id_);
     nghttp2_header_list* item = current_headers_head_;
     current_headers_head_ = item->next;
     nghttp2_rcbuf_decref(item->value);
@@ -312,6 +335,8 @@ inline void Nghttp2Stream::FreeHeaders() {
 
 // Submit informational headers for a stream.
 inline int Nghttp2Stream::SubmitInfo(nghttp2_nv* nva, size_t len) {
+  DEBUG_HTTP2("Nghttp2Stream %d: sending informational headers, count: %d\n",
+              id_, len);
   return nghttp2_submit_headers(session_->session(),
                                 NGHTTP2_FLAG_NONE,
                                 id_, nullptr,
@@ -320,6 +345,7 @@ inline int Nghttp2Stream::SubmitInfo(nghttp2_nv* nva, size_t len) {
 
 inline int Nghttp2Stream::SubmitPriority(nghttp2_priority_spec* prispec,
                                          bool silent) {
+  DEBUG_HTTP2("Nghttp2Stream %d: sending priority spec\n", id_);
   return silent ?
       nghttp2_session_change_stream_priority(session_->session(),
                                              id_, prispec) :
@@ -330,6 +356,7 @@ inline int Nghttp2Stream::SubmitPriority(nghttp2_priority_spec* prispec,
 
 // Submit an RST_STREAM frame
 inline int Nghttp2Stream::SubmitRstStream(const uint32_t code) {
+  DEBUG_HTTP2("Nghttp2Stream %d: sending rst-stream, code: %d\n", id_, code);
   session_->SendPendingData();
   return nghttp2_submit_rst_stream(session_->session(),
                                    NGHTTP2_FLAG_NONE,
@@ -343,6 +370,7 @@ inline int32_t Nghttp2Stream::SubmitPushPromise(
     size_t len,
     Nghttp2Stream** assigned,
     bool emptyPayload) {
+  DEBUG_HTTP2("Nghttp2Stream %d: sending push promise\n", id_);
   int32_t ret = nghttp2_submit_push_promise(session_->session(),
                                             NGHTTP2_FLAG_NONE,
                                             id_, nva, len,
@@ -362,6 +390,7 @@ inline int32_t Nghttp2Stream::SubmitPushPromise(
 inline int Nghttp2Stream::SubmitResponse(nghttp2_nv* nva,
                                          size_t len,
                                          bool emptyPayload) {
+  DEBUG_HTTP2("Nghttp2Stream %d: submitting response\n", id_);
   nghttp2_data_provider* provider = nullptr;
   nghttp2_data_provider prov;
   prov.source.ptr = this;
@@ -383,6 +412,7 @@ inline int32_t Nghttp2Session::SubmitRequest(
     size_t len,
     Nghttp2Stream** assigned,
     bool emptyPayload) {
+  DEBUG_HTTP2("Nghttp2Session: submitting request\n");
   nghttp2_data_provider* provider = nullptr;
   nghttp2_data_provider prov;
   prov.source.ptr = this;
@@ -415,6 +445,8 @@ inline int Nghttp2Stream::Write(nghttp2_stream_write_t* req,
       cb(req, UV_EOF);
     return 0;
   }
+  DEBUG_HTTP2("Nghttp2Stream %d: queuing buffers  to send, count: %d\n",
+              id_, nbufs);
   nghttp2_stream_write_queue* item = new nghttp2_stream_write_queue;
   item->cb = cb;
   item->req = req;
@@ -436,6 +468,7 @@ inline int Nghttp2Stream::Write(nghttp2_stream_write_t* req,
 }
 
 inline void Nghttp2Stream::ReadStart() {
+  DEBUG_HTTP2("Nghttp2Stream %d: start reading\n", id_);
   if (IsPaused()) {
     // If handle->reading is less than zero, read_start had never previously
     // been called. If handle->reading is zero, reading had started and read
@@ -453,6 +486,7 @@ inline void Nghttp2Stream::ReadStart() {
 }
 
 inline void Nghttp2Stream::ReadStop() {
+  DEBUG_HTTP2("Nghttp2Stream %d: stop reading\n", id_);
   // Has no effect if IsReading() is false, which will happen if we either
   // have not started reading yet at all (NGHTTP2_STREAM_READ_START is not
   // set) or if we're already paused (NGHTTP2_STREAM_READ_PAUSED is set.
