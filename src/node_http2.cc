@@ -7,6 +7,7 @@ namespace node {
 using v8::ArrayBuffer;
 using v8::Boolean;
 using v8::Context;
+using v8::Function;
 using v8::Integer;
 
 namespace http2 {
@@ -759,150 +760,6 @@ void Http2Session::OnTrailers(Nghttp2Stream* stream,
   }
 }
 
-static inline bool CheckHeaderAllowsMultiple(nghttp2_vec* name) {
-  switch (name->len) {
-    case 3:
-      if (memcmp(name->base, "age", 3) == 0)
-        return false;
-      break;
-    case 4:
-      switch (name->base[3]) {
-        case 'e':
-          if (memcmp(name->base, "dat", 3) == 0)
-            return false;
-          break;
-        case 'g':
-          if (memcmp(name->base, "eta", 3) == 0)
-            return false;
-          break;
-        case 'm':
-          if (memcmp(name->base, "fro", 3) == 0)
-            return false;
-          break;
-        case 't':
-          if (memcmp(name->base, "hos", 3) == 0)
-            return false;
-          break;
-      }
-    case 5:
-      if (memcmp(name->base, "range", 5) == 0)
-        return false;
-      break;
-    case 6:
-      if (memcmp(name->base, "server", 6) == 0)
-        return false;
-      break;
-    case 7:
-      switch (name->base[6]) {
-        case 's':
-          if (memcmp(name->base, "expire", 6) == 0)
-            return false;
-          break;
-        case 'r':
-          if (memcmp(name->base, "refere", 6) == 0)
-            return false;
-          break;
-      }
-      break;
-    case 8:
-      switch (name->base[7]) {
-        case 'e':
-          if (memcmp(name->base, "if-rang", 7) == 0)
-            return false;
-          break;
-        case 'h':
-          if (memcmp(name->base, "if-matc", 7) == 0)
-            return false;
-          break;
-        case 'n':
-          if (memcmp(name->base, "locatio", 7) == 0)
-            return false;
-          break;
-      }
-      break;
-    case 10:
-      if (memcmp(name->base, "user-agent", 10) == 0)
-        return false;
-      break;
-    case 11:
-      switch (name->base[10]) {
-        case '5':
-          if (memcmp(name->base, "content-md", 10) == 0)
-            return false;
-          break;
-        case 'r':
-          if (memcmp(name->base, "retry-afte", 10) == 0)
-            return false;
-          break;
-      }
-      break;
-    case 12:
-      switch (name->base[11]) {
-        case 'e':
-          if (memcmp(name->base, "content-typ", 11) == 0)
-            return false;
-          break;
-        case 's':
-          if (memcmp(name->base, "max-forward", 11) == 0)
-            return false;
-          break;
-      }
-      break;
-    case 13:
-      switch (name->base[12]) {
-        case 'd':
-          if (memcmp(name->base, "last-modifie", 12) == 0)
-            return false;
-          break;
-        case 'h':
-          if (memcmp(name->base, "if-none-matc", 12) == 0)
-            return false;
-          break;
-        case 'n':
-          if (memcmp(name->base, "authorizatio", 12) == 0)
-            return false;
-          break;
-      }
-      break;
-    case 14:
-      if (memcmp(name->base, "content-length", 14) == 0)
-        return false;
-      break;
-    case 16:
-      switch (name->base[15]) {
-        case 'e':
-          if (memcmp(name->base, "content-languag", 15) == 0)
-            return false;
-          break;
-        case 'g':
-          if (memcmp(name->base, "content-encodin", 15) == 0)
-            return false;
-          break;
-        case 'n':
-          if (memcmp(name->base, "content-locatio", 15) == 0)
-            return false;
-          break;
-      }
-      break;
-    case 17:
-      if (memcmp(name->base, "if-modified-since", 17) == 0)
-        return false;
-      break;
-    case 19:
-      switch (name->base[18]) {
-        case 'e':
-          if (memcmp(name->base, "if-unmodified-sinc", 18) == 0)
-            return false;
-          break;
-        case 'n':
-          if (memcmp(name->base, "proxy-authorizatio", 18) == 0)
-            return false;
-          break;
-      }
-  }
-  return true;
-}
-
 void Http2Session::OnHeaders(Nghttp2Stream* stream,
                              nghttp2_header_list* headers,
                              nghttp2_headers_category cat,
@@ -912,38 +769,42 @@ void Http2Session::OnHeaders(Nghttp2Stream* stream,
 
   Isolate* isolate = env()->isolate();
   HandleScope scope(isolate);
-  Local<Object> holder = Object::New(isolate);
-  holder->SetPrototype(context, v8::Null(isolate)).ToChecked();
   Local<String> name_str;
   Local<String> value_str;
-  Local<Array> array;
-  while (headers != nullptr) {
-    nghttp2_header_list* item = headers;
-    name_str = ExternalHeaderNameResource::New(isolate, item->name);
-    nghttp2_vec name = nghttp2_rcbuf_get_buf(item->name);
-    nghttp2_vec value = nghttp2_rcbuf_get_buf(item->value);
-    value_str = String::NewFromUtf8(isolate,
-                                    reinterpret_cast<char*>(value.base),
-                                    v8::NewStringType::kNormal,
-                                    value.len).ToLocalChecked();
-    if (holder->Has(context, name_str).FromJust()) {
-      if (CheckHeaderAllowsMultiple(&name)) {
-        Local<Value> existing = holder->Get(context, name_str).ToLocalChecked();
-        if (existing->IsArray()) {
-          array = existing.As<Array>();
-          array->Set(context, array->Length(), value_str).FromJust();
-        } else {
-          array = Array::New(isolate, 2);
-          array->Set(context, 0, existing).FromJust();
-          array->Set(context, 1, value_str).FromJust();
-          holder->Set(context, name_str, array).FromJust();
-        }
-      }  // Ignore singleton headers that appear more than once
-    } else {
-      holder->Set(context, name_str, value_str).FromJust();
+
+  Local<Array> holder = Array::New(isolate);
+  Local<Function> fn = env()->push_values_to_array_function();
+  Local<Value> argv[NODE_PUSH_VAL_TO_ARRAY_MAX * 2];
+
+  // The headers are passed in above as a linked list of nghttp2_header_list
+  // structs. The following converts that into a JS array with the structure:
+  // [name1, value1, name2, value2, name3, value3, name3, value4] and so on.
+  // That array is passed up to the JS layer and converted into an Object form
+  // like {name1: value1, name2: value2, name3: [value3, value4]}. We do it
+  // this way for performance reasons (it's faster to generate and pass an
+  // array than it is to generate and pass the object).
+  do {
+    size_t j = 0;
+    while (headers != nullptr && j < arraysize(argv) / 2) {
+      nghttp2_header_list* item = headers;
+      name_str = ExternalHeaderNameResource::New(isolate, item->name);
+      nghttp2_vec value = nghttp2_rcbuf_get_buf(item->value);
+      value_str = String::NewFromUtf8(isolate,
+                                      reinterpret_cast<char*>(value.base),
+                                      v8::NewStringType::kNormal,
+                                      value.len).ToLocalChecked();
+      argv[j * 2] = name_str;
+      argv[j * 2 + 1] = value_str;
+      headers = item->next;
+      j++;
     }
-    headers = item->next;
-  }
+    // For performance, we pass name and value pairs to array.protototype.push
+    // in batches of size NODE_PUSH_VAL_TO_ARRAY_MAX * 2 until there are no
+    // more items to push.
+    if (j > 0) {
+      fn->Call(env()->context(), holder, j * 2, argv).ToLocalChecked();
+    }
+  } while (headers != nullptr);
 
   if (object()->Has(context, env()->onheaders_string()).FromJust()) {
     Local<Value> argv[4] = {
@@ -1061,7 +922,12 @@ void Http2Session::OnStreamReadImpl(ssize_t nread,
     return;
   }
   uv_buf_t buf[] { uv_buf_init((*bufs).base, nread) };
-  session->Write(buf, 1);
+  ssize_t ret = session->Write(buf, 1);
+  if (ret < 0) {
+    DEBUG_HTTP2("Http2Session: fatal error receiving data: %d\n", ret);
+    nghttp2_session_terminate_session(session->session(),
+                                      NGHTTP2_PROTOCOL_ERROR);
+  }
 }
 
 
