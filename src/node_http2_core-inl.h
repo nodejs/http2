@@ -40,6 +40,8 @@ inline void Nghttp2Session::SubmitShutdownNotice() {
 }
 
 // Sends a SETTINGS frame on the current session
+// Note that this *should* send a SETTINGS frame even if niv == 0 and there
+// are no settings entries to send.
 inline int Nghttp2Session::SubmitSettings(const nghttp2_settings_entry iv[],
                                           size_t niv) {
   DEBUG_HTTP2("Nghttp2Session %d: submitting settings, count: %d\n",
@@ -59,6 +61,18 @@ inline Nghttp2Stream* Nghttp2Session::FindStream(int32_t id) {
   }
 }
 
+inline void Nghttp2Stream::FlushDataChunks() {
+  while (data_chunks_head_ != nullptr) {
+    DEBUG_HTTP2("Nghttp2Stream %d: emitting data chunk\n", id_);
+    nghttp2_data_chunk_t* item = data_chunks_head_;
+    data_chunks_head_ = item->next;
+    session_->OnDataChunk(this, item);
+    delete[] item->buf.base;
+    data_chunk_free_list.push(item);
+  }
+  data_chunks_tail_ = nullptr;
+}
+
 // Passes all of the the chunks for a data frame out to the JS layer
 // The chunks are collected as the frame is being processed and sent out
 // to the JS side only when the frame is fully processed.
@@ -69,17 +83,7 @@ inline void Nghttp2Session::HandleDataFrame(const nghttp2_frame* frame) {
   Nghttp2Stream* stream = this->FindStream(id);
   // If the stream does not exist, something really bad happened
   CHECK_NE(stream, nullptr);
-
-  while (stream->data_chunks_head_ != nullptr) {
-    DEBUG_HTTP2("Nghttp2Session %d: emitting data chunk for stream %d\n",
-                session_type_, id);
-    nghttp2_data_chunk_t* item = stream->data_chunks_head_;
-    stream->data_chunks_head_ = item->next;
-    OnDataChunk(stream, item);
-    delete[] item->buf.base;
-    data_chunk_free_list.push(item);
-  }
-  stream->data_chunks_tail_ = nullptr;
+  stream->FlushDataChunks();
 }
 
 // Passes all of the collected headers for a HEADERS frame out to the JS layer.
@@ -292,7 +296,7 @@ inline void Nghttp2Stream::ResetState(
 
 
 inline void Nghttp2Stream::Destroy() {
-    DEBUG_HTTP2("Nghttp2Stream %d: destroying stream\n", id_);
+  DEBUG_HTTP2("Nghttp2Stream %d: destroying stream\n", id_);
   // Do nothing if this stream instance is already destroyed
   if (IsDestroyed() || IsDestroying())
     return;
@@ -305,7 +309,7 @@ inline void Nghttp2Stream::Destroy() {
     session_ = nullptr;
   }
 
-  // Free any remaining data chunks.
+  // Free any remaining incoming data chunks.
   while (data_chunks_head_ != nullptr) {
     nghttp2_data_chunk_t* chunk = data_chunks_head_;
     data_chunks_head_ = chunk->next;
@@ -314,7 +318,16 @@ inline void Nghttp2Stream::Destroy() {
   }
   data_chunks_tail_ = nullptr;
 
-  // Free any remainingin headers
+  // Free any remaining outgoing data chunks.
+  while (queue_head_ != nullptr) {
+    nghttp2_stream_write_queue* head = queue_head_;
+    queue_head_ = head->next;
+    head->cb(head->req, UV_ECANCELED);
+    delete head;
+  }
+  queue_tail_ = nullptr;
+
+  // Free any remaining headers
   FreeHeaders();
 
   // Return this stream instance to the freelist
@@ -337,6 +350,7 @@ inline void Nghttp2Stream::FreeHeaders() {
 inline int Nghttp2Stream::SubmitInfo(nghttp2_nv* nva, size_t len) {
   DEBUG_HTTP2("Nghttp2Stream %d: sending informational headers, count: %d\n",
               id_, len);
+  CHECK_GT(len, 0);
   return nghttp2_submit_headers(session_->session(),
                                 NGHTTP2_FLAG_NONE,
                                 id_, nullptr,
@@ -364,12 +378,13 @@ inline int Nghttp2Stream::SubmitRstStream(const uint32_t code) {
                                    code);
 }
 
-// Submit a push promise
+// Submit a push promise.
 inline int32_t Nghttp2Stream::SubmitPushPromise(
     nghttp2_nv* nva,
     size_t len,
     Nghttp2Stream** assigned,
     bool emptyPayload) {
+  CHECK_GT(len, 0);
   DEBUG_HTTP2("Nghttp2Stream %d: sending push promise\n", id_);
   int32_t ret = nghttp2_submit_push_promise(session_->session(),
                                             NGHTTP2_FLAG_NONE,
@@ -390,6 +405,7 @@ inline int32_t Nghttp2Stream::SubmitPushPromise(
 inline int Nghttp2Stream::SubmitResponse(nghttp2_nv* nva,
                                          size_t len,
                                          bool emptyPayload) {
+  CHECK_GT(len, 0);
   DEBUG_HTTP2("Nghttp2Stream %d: submitting response\n", id_);
   nghttp2_data_provider* provider = nullptr;
   nghttp2_data_provider prov;
@@ -412,6 +428,7 @@ inline int32_t Nghttp2Session::SubmitRequest(
     size_t len,
     Nghttp2Stream** assigned,
     bool emptyPayload) {
+  CHECK_GT(len, 0);
   DEBUG_HTTP2("Nghttp2Session: submitting request\n");
   nghttp2_data_provider* provider = nullptr;
   nghttp2_data_provider prov;
@@ -468,6 +485,9 @@ inline int Nghttp2Stream::Write(nghttp2_stream_write_t* req,
 }
 
 inline void Nghttp2Stream::ReadStart() {
+  // Has no effect if IsReading() is true.
+  if (IsReading())
+    return;
   DEBUG_HTTP2("Nghttp2Stream %d: start reading\n", id_);
   if (IsPaused()) {
     // If handle->reading is less than zero, read_start had never previously
@@ -482,7 +502,9 @@ inline void Nghttp2Stream::ReadStart() {
   }
   flags_ |= NGHTTP2_STREAM_READ_START;
   flags_ &= ~NGHTTP2_STREAM_READ_PAUSED;
-  // TODO(jasnell): Drain the queued data chunks...
+
+  // Flush any queued data chunks immediately out to the JS layer
+  FlushDataChunks();
 }
 
 inline void Nghttp2Stream::ReadStop() {
@@ -523,6 +545,14 @@ Nghttp2Session::Callbacks::Callbacks(bool kHasGetPaddingCallback) {
     callbacks, OnStreamClose);
   nghttp2_session_callbacks_set_on_data_chunk_recv_callback(
     callbacks, OnDataChunkReceived);
+
+  // nghttp2_session_callbacks_set_on_invalid_frame_recv(
+  //   callbacks, OnInvalidFrameReceived);
+
+#ifdef NODE_DEBUG_HTTP2
+  nghttp2_session_callbacks_set_error_callback(
+    callbacks, OnNghttpError);
+#endif
 
   if (kHasGetPaddingCallback) {
     nghttp2_session_callbacks_set_select_padding_callback(
