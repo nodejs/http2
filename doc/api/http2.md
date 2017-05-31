@@ -130,9 +130,9 @@ session.on('stream', (stream, headers, flags) => {
 });
 ```
 
-*Note*: User code will typically not listen for this event directly, and would
-instead register a handler for the `'stream'` event emitted by the `net.Server`
-or `tls.Server` instances returned by `http2.createServer()` and
+On the server side, user code will typically not listen for this event directly,
+and would instead register a handler for the `'stream'` event emitted by the
+`net.Server` or `tls.Server` instances returned by `http2.createServer()` and
 `http2.createSecureServer()`, respectively, as in the example below:
 
 ```js
@@ -164,7 +164,14 @@ not handled, the `'error'` event will be re-emitted on the `Http2Session`.
 
 #### Event: 'timeout'
 
-(TODO: fill in detail)
+After the `http2session.setTimeout()` method is used to set the timeout period
+for this `Http2Session`, the `'timeout'` event is emitted if there is no
+activity on the `Http2Session` after the configured number of milliseconds.
+
+```js
+session.setTimeout(2000);
+session.on('timeout', () => { /** .. **/ });
+```
 
 #### http2session.destroy()
 
@@ -182,15 +189,15 @@ longer be used, otherwise `false`.
 
 * Value: {[Settings Object][]}
 
-An object describing the current local settings of this `Http2Session`. The
-local settings are local to *this* `Http2Session` instance.
+A prototype-less object describing the current local settings of this
+`Http2Session`. The local settings are local to *this* `Http2Session` instance.
 
 #### http2session.remoteSettings
 
 * Value: {[Settings Object][]}
 
-An object describing the current remote settings of this `Http2Session`. The
-remote settings are set by the *connected* HTTP/2 peer.
+A prototype-less object describing the current remote settings of this
+`Http2Session`. The remote settings are set by the *connected* HTTP/2 peer.
 
 #### http2session.request(headers[, options])
 
@@ -216,40 +223,76 @@ HTTP/2 request to the connected server.
 This method is only available if `http2session.type` is equal to
 `http2.constants.NGHTTP2_SESSION_CLIENT`.
 
-(TODO: fill in detail)
+```js
+const http2 = require('http2');
+const clientSession = http2.connect('https://localhost:1234');
+const {
+  HTTP2_HEADER_PATH,
+  HTTP2_HEADER_STATUS
+} = http2.constants;
+
+const req = clientSession.request({ [HTTP2_HEADER_PATH]: '/' });
+req.on('response', (headers) => {
+  console.log(HTTP2_HEADER_STATUS);
+  req.on('data', (chunk) => { /** .. **/ });
+  req.on('end', () => { /** .. **/ });
+});
+```
 
 #### http2session.rstStream(stream, code)
 
 * stream {Http2Stream}
-* code {number}
+* code {number} Unsigned 32-bit integer identifying the error code. Defaults to
+  `http2.constant.NGHTTP2_NO_ERROR` (`0x00`)
 
 Sends an `RST_STREAM` frame to the connected HTTP/2 peer, causing the given
-`Http2Stream` to be closed on both sides using error code `code`.
+`Http2Stream` to be closed on both sides using [error code][] `code`.
 
 #### http2session.setTimeout(msecs, callback)
 
 * `msecs` {number}
 * `callback` {Function}
 
-(TODO: fill in detail)
+Used to set a callback function that is called when there is no activity on
+the `Http2Session` after `msecs` milliseconds. The given `callback` is
+registered as a listener on the `'timeout'` event.
 
 #### http2session.shutdown(options[, callback])
 
 * `options` {Object}
   * `graceful` {boolean} `true` to attempt a polite shutdown of the
     `Http2Session`.
-  * `errorCode` {number} The HTTP/2 Error Code to return. Note that this is
-    *not* the same thing as an HTTP Response Status Code.
+  * `errorCode` {number} The HTTP/2 [error code][] to return. Note that this is
+    *not* the same thing as an HTTP Response Status Code. Defaults to `0x00`
+    (No Error).
   * `lastStreamID` {number} The Stream ID of the last successfully processed
     `Http2Stream` on this `Http2Session`.
   * `opaqueData` {Buffer} A `Buffer` instance containing arbitrary additional
     data to send to the peer upon disconnection. This is used, typically, to
     provide additional data for debugging failures, if necessary.
-* `callback` {Function}
+* `callback` {Function} A callback that is invoked after the session shutdown
+  has been completed.
 
 Attempts to shutdown this `Http2Session` using HTTP/2 defined procedures.
 If specified, the given `callback` function will be invoked once the shutdown
 process has completed.
+
+Note that calling `http2session.shutdown()` does *not* destroy the session or
+tear down the `Socket` connection. It merely prompts both sessions to begin
+preparing to cease activity.
+
+During a "graceful" shutdown, the session will first send a `GOAWAY` frame to
+the connected peer identifying the last processed stream as 2<sup>32</sup>-1.
+Then, on the next tick of the event loop, a second `GOAWAY` frame identifying
+the most recently processed stream identifier is sent. This process allows the
+remote peer to begin preparing for the connection to be terminated.
+
+```js
+session.shutdown({
+  graceful: true,
+  opaqueData: Buffer.from('add some debugging data here')
+}, () => session.destroy());
+```
 
 #### http2session.socket
 
@@ -417,7 +460,9 @@ this event is emitted, the `Http2Stream` instance is no longer usable.
 
 #### Event: 'timeout'
 
-(TODO: fill in detail)
+The `'timeout'` event is emitted after no activity is received for this
+`'Http2Stream'` within the number of millseconds set using
+`http2stream.setTimeout()`.
 
 #### Event: 'trailers'
 
@@ -427,7 +472,7 @@ trailing header fields is received. The listener callback is passed the
 
 ```js
 stream.on('trailers', (headers, flags) => {
-  // TODO(jasnell): Fill in example
+  console.log(headers);
 });
 ```
 
@@ -459,36 +504,38 @@ peer.
 
 * Value: {number}
 
-Set to the `RST_STREAM` error code when the `Http2Stream` is destroyed after
-either receiving an `RST_STREAM` frame from the connected peer, calling
-`http2stream.rstStream()`, or `http2stream.destroy()`.
+Set to the `RST_STREAM` [error code][] reported when the `Http2Stream` is
+destroyed after either receiving an `RST_STREAM` frame from the connected peer,
+calling `http2stream.rstStream()`, or `http2stream.destroy()`. Will be
+`undefined` if the `Http2Stream` has not been closed.
 
 #### http2stream.rstStream(code)
 
-* `code` {number}
+* code {number} Unsigned 32-bit integer identifying the error code. Defaults to
+  `http2.constant.NGHTTP2_NO_ERROR` (`0x00`)
 
 Sends an `RST_STREAM` frame to the connected HTTP/2 peer, causing this
-`Http2Stream` to be closed on both sides using error code `code`.
+`Http2Stream` to be closed on both sides using [error code][] `code`.
 
 #### http2stream.rstWithNoError()
 
-Shortcut for `http2stream.rstStream()` using error code `NO_ERROR`.
+Shortcut for `http2stream.rstStream()` using error code `0x00` (No Error).
 
 #### http2stream.rstWithProtocolError() {
 
-Shortcut for `http2stream.rstStream()` using error code `PROTOCOL_ERROR`.
+Shortcut for `http2stream.rstStream()` using error code `0x01` (Protocol Error).
 
 #### http2stream.rstWithCancel() {
 
-Shortcut for `http2stream.rstStream()` using error code `CANCEL`.
+Shortcut for `http2stream.rstStream()` using error code `0x08` (Cancel).
 
 #### http2stream.rstWithRefuse() {
 
-Shortcut for `http2stream.rstStream()` using error code `REFUSED_STREAM`.
+Shortcut for `http2stream.rstStream()` using error code `0x07` (Refused Stream).
 
 #### http2stream.rstWithInternalError() {
 
-Shortcut for `http2stream.rstStream()` using error code `INTERNAL_ERROR`.
+Shortcut for `http2stream.rstStream()` using error code `0x02` (Internal Error).
 
 #### http2stream.session
 
@@ -502,7 +549,15 @@ value will be `undefined` after the `Http2Stream` instance is destroyed.
 * `msecs` {number}
 * `callback` {Function}
 
-(TODO: fill in detail)
+```js
+const http2 = require('http2');
+const client = http2.connect('http://example.org:8000');
+
+const req = client.request({':path': '/'});
+
+// Cancel the stream if there's no activity after 5 seconds
+req.setTimeout(5000, () => req.rstStreamWithCancel());
+```
 
 #### http2stream.state
 
@@ -534,7 +589,7 @@ the headers.
 
 ```js
 stream.on('headers', (headers, flags) => {
-  // TODO(jasnell): Fill in example
+  console.log(headers);
 });
 ```
 
@@ -546,7 +601,7 @@ associated with the headers.
 
 ```js
 stream.on('push', (headers, flags) => {
-  // TODO(jasnell): Fill in example
+  console.log(headers);
 });
 ```
 
@@ -577,18 +632,6 @@ used exclusively on HTTP/2 Servers. `Http2Stream` instances on the server
 provide additional methods such as `http2stream.pushStream()` and
 `http2stream.respond()` that are only relevant on the server.
 
-#### Event: 'request'
-
-The `'request'` event is emitted when a block of headers associated with an
-HTTP request is received. The listener callback is passed the [Headers Object][]
-and flags associated with the headers.
-
-```js
-stream.on('request', (headers, flags) => {
-  // TODO(jasnell): Fill in example
-});
-```
-
 #### http2stream.additionalHeaders(headers)
 
 * `headers` {[Headers Object][]}
@@ -608,18 +651,38 @@ Sends an additional informational `HEADERS` frame to the connected HTTP/2 peer.
   * `weight` {number} Specifies the relative dependency of a stream in relation
     to other streams with the same `parent`. The value is a number between `1`
     and `256` (inclusive).
-* `callback` {Function}
+* `callback` {Function} Callback that is called once the push stream has been
+  initiated.
 
-Initiates a push stream.
-(TODO: fill in detail)
+Initiates a push stream. The callback is invoked with the new `Htt2Stream`
+instance created for the push stream.
+
+```js
+const http2 = require('http2');
+const server = http2.createServer();
+server.on('stream', (stream) => {
+  stream.respond({':status': 200});
+  stream.pushStream({':path': '/'}, (pushStream) => {
+    pushStream.respond({':status': 200});
+    pushStream.end('some pushed data');
+  });
+  stream.end('some data');
+});
+```
 
 #### http2stream.respond([headers[, options]])
 
 * `headers` {[Headers Object][]}
 * `options` {Object}
 
-Initiates a response.
-(TODO: fill in detail)
+```js
+const http2 = require('http2');
+const server = http2.createServer();
+server.on('stream', (stream) => {
+  stream.respond({':status': 200});
+  stream.end('some data');
+});
+```
 
 ### Class: Http2Server
 
@@ -667,7 +730,8 @@ server.on('stream', (stream, headers, flags) => {
 
 #### Event: 'timeout'
 
-(TODO: fill in detail)
+The `'timeout'` event is emitted when there is no activity on the Server for
+a given number of milliseconds set using `http2server.setTimeout()`.
 
 ### Class: Http2SecureServer
 
@@ -717,7 +781,8 @@ server.on('stream', (stream, headers, flags) => {
 
 #### Event: 'timeout'
 
-(TODO: fill in detail)
+The `'timeout'` event is emitted when there is no activity on the Server for
+a given number of milliseconds set using `http2server.setTimeout()`.
 
 ### http2.getDefaultSettings()
 
@@ -882,11 +947,37 @@ server.listen(80);
 * Returns `Http2Session`
 
 Returns a HTTP/2 client `Http2Session` instance.
-(TODO: fill in detail)
+
+```js
+const http2 = require('http2');
+const client = http2.connect('https://localhost:1234');
+
+/** use the client **/
+
+client.destroy();
+```
 
 ### http2.constants
 
-(TODO: Fill in details)
+#### Error Codes for RST_STREAM and GOAWAY
+<a id="error_codes"></a>
+
+| Value | Name                | Constant                                      |
+|-------|---------------------|-----------------------------------------------|
+| 0x00  | No Error            | `http2.constants.NGHTTP2_NO_ERROR`            |
+| 0x01  | Protocol Error      | `http2.constants.NGHTTP2_PROTOCOL_ERROR`      |
+| 0x02  | Internal Error      | `http2.constants.NGHTTP2_INTERNAL_ERROR`      |
+| 0x03  | Flow Control Error  | `http2.constants.NGHTTP2_FLOW_CONTROL_ERROR`  |
+| 0x04  | Settings Timeout    | `http2.constants.NGHTTP2_SETTINGS_TIMEOUT`    |
+| 0x05  | Stream Closed       | `http2.constants.NGHTTP2_STREAM_CLOSED`       |
+| 0x06  | Frame Size Error    | `http2.constants.NGHTTP2_FRAME_SIZE_ERROR`    |
+| 0x07  | Refused Stream      | `http2.constants.NGHTTP2_REFUSED_STREAM`      |
+| 0x08  | Cancel              | `http2.constants.NGHTTP2_CANCEL`              |
+| 0x09  | Compression Error   | `http2.constants.NGHTTP2_COMPRESSION_ERROR`   |
+| 0x0a  | Connect Error       | `http2.constants.NGHTTP2_CONNECT_ERROR`       |
+| 0x0b  | Enhance Your Calm   | `http2.constants.NGHTTP2_ENHANCE_YOUR_CALM`   |
+| 0x0c  | Inadequate Security | `http2.constants.NGHTTP2_INADEQUATE_SECURITY` |
+| 0x0d  | HTTP/1.1 Required   | `http2.constants.NGHTTP2_HTTP_1_1_REQUIRED`   |
 
 ### Headers Object
 
@@ -912,7 +1003,14 @@ prototype. This means that normal JavaScript object methods such as
 `Object.prototype.toString()` and `Object.prototype.hasOwnProperty()` will
 not work.
 
-(TODO: Fill in more detail)
+```js
+const http2 = require('http2');
+const server = http2.createServer();
+server.on('stream', (stream, headers) => {
+  console.log(headers[':path']);
+  console.log(headers.ABC);
+});
+```
 
 ### Settings Object
 
@@ -1012,3 +1110,4 @@ TBD
 [ServerHttp2Stream]: #http2_class_serverhttp2stream
 [Settings Object]: #http2_settings_object
 [Using options.selectPadding]: #http2_using_options_selectpadding
+[error code]: #error_codes
