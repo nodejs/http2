@@ -3,6 +3,18 @@
 namespace node {
 namespace http2 {
 
+#ifdef NODE_DEBUG_HTTP2
+int Nghttp2Session::OnNghttpError(nghttp2_session* session,
+                                  const char* message,
+                                  size_t len,
+                                  void* user_data) {
+  Nghttp2Session* handle = static_cast<Nghttp2Session*>(user_data);
+  DEBUG_HTTP2("Nghttp2Session %d: Error '%.*s'\n",
+              handle->session_type_, len, message);
+  return 0;
+}
+#endif
+
 // nghttp2 calls this at the beginning a new HEADERS or PUSH_PROMISE frame.
 // We use it to ensure that an Nghttp2Stream instance is allocated to store
 // the state.
@@ -15,6 +27,7 @@ int Nghttp2Session::OnBeginHeadersCallback(nghttp2_session* session,
     frame->hd.stream_id;
   DEBUG_HTTP2("Nghttp2Session %d: beginning headers for stream %d\n",
               handle->session_type_, id);
+
   Nghttp2Stream* stream = handle->FindStream(id);
   if (stream == nullptr) {
     Nghttp2Stream::Init(id, handle, frame->headers.cat);
@@ -149,6 +162,9 @@ ssize_t Nghttp2Session::OnStreamRead(nghttp2_session* session,
   size_t remaining = length;
   size_t offset = 0;
 
+  // While there is data in the queue, copy data into buf until it is full.
+  // There may be data left over, which will be sent the next time nghttp
+  // calls this callback.
   while (stream->queue_head_ != nullptr) {
     DEBUG_HTTP2("Nghttp2Session %d: processing outbound data chunk\n",
                 handle->session_type_);
@@ -183,6 +199,13 @@ ssize_t Nghttp2Session::OnStreamRead(nghttp2_session* session,
   stream->queue_tail_ = nullptr;
 
  end:
+  // If we are no longer writable and there is no more data in the queue,
+  // then we need to set the NGHTTP2_DATA_FLAG_EOF flag.
+  // If we are still writable but there is not yet any data to send, set the
+  // NGHTTP2_ERR_DEFERRED flag. This will put the stream into a pending state
+  // that will wait for data to become available.
+  // If neither of these flags are set, then nghttp2 will call this callback
+  // again to get the data for the next DATA frame.
   int writable = stream->queue_head_ != nullptr || stream->IsWritable();
   if (offset == 0 && writable && stream->queue_head_ == nullptr) {
     DEBUG_HTTP2("Nghttp2Session %d: deferring stream %d\n",
@@ -194,6 +217,10 @@ ssize_t Nghttp2Session::OnStreamRead(nghttp2_session* session,
                 handle->session_type_, id);
     *flags |= NGHTTP2_DATA_FLAG_EOF;
 
+    // Only when we are done sending the last chunk of data do we check for
+    // any trailing headers that are to be sent. This is the only opportunity
+    // we have to make this check. If there are trailers, then the
+    // NGHTTP2_DATA_FLAG_NO_END_STREAM flag must be set.
     MaybeStackBuffer<nghttp2_nv> trailers;
     handle->OnTrailers(stream, &trailers);
     if (trailers.length() > 0) {

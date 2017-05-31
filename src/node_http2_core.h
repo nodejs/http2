@@ -167,6 +167,13 @@ class Nghttp2Session {
   inline void HandleDataFrame(const nghttp2_frame* frame);
 
   /* callbacks for nghttp2 */
+#ifdef NODE_DEBUG_HTTP2
+  static int OnNghttpError(nghttp2_session* session,
+                           const char* message,
+                           size_t len,
+                           void* user_data);
+#endif
+
   static int OnBeginHeadersCallback(nghttp2_session* session,
                                     const nghttp2_frame* frame,
                                     void* user_data);
@@ -238,8 +245,10 @@ class Nghttp2Stream {
     CHECK_EQ(data_chunks_tail_, nullptr);
     CHECK_EQ(current_headers_head_, nullptr);
     CHECK_EQ(current_headers_tail_, nullptr);
-    DEBUG_HTTP2("Nghttp2Stream: freed\n");
+    DEBUG_HTTP2("Nghttp2Stream %d: freed\n", id_);
   }
+
+  inline void FlushDataChunks();
 
   // Resets the state of the stream instance to defaults
   inline void ResetState(
