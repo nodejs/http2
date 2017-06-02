@@ -4,7 +4,8 @@ const {
   fixturesDir,
   mustCall,
   mustNotCall,
-  platformTimeout
+  platformTimeout,
+  expectsError
 } = require('../common');
 const { strictEqual } = require('assert');
 const { join } = require('path');
@@ -126,6 +127,15 @@ function onSession(session) {
     { cert, key },
     mustCall(onRequest)
   );
+
+  const expectedRejection = mustCall(expectsError({
+    code: 'ERR_SOCKET_REJECT_HTTP1',
+    type: TypeError,
+    message: 'HTTP/1 not allowed'
+  }), 2);
+  server.on('secureConnection', mustCall((socket) => {
+    socket.on('error', expectedRejection);
+  }, 3));
 
   server.listen(0);
 
