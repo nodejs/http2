@@ -749,6 +749,13 @@ The `'socketError'` event is emitted when an `'error'` event is emitted by
 a `Socket` associated with the server. If no listener is registered for this
 event, an `'error'` event is emitted on the `Socket` instance instead.
 
+#### Event: 'unknownProtocol'
+
+The `'unknownProtocol'` event is emitted when a connecting client fails to
+negotiate an allowed protocol (i.e. HTTP/2 or HTTP/1.1). The event handler
+receives the socket for handling. If no listener is registered for this event,
+the connection is terminated. See the 
+
 #### Event: 'stream'
 
 The `'stream'` event is emitted when a `'stream'` event has been emitted by
@@ -864,9 +871,7 @@ server.listen(80);
 * `options` {Object}
   * `allowHTTP1` {boolean} Incoming client connections that do not support
     HTTP/2 will be downgraded to HTTP/1.x when set to `true`. The default value
-    is `false`, which rejects non-HTTP/2 client connections by either emitting
-    a `'socketError'` event, if a handler is registered, or else disconnecing
-    the remote peer and emitting an `'error'` event on the socket.
+    is `false`. See the [`'unknownProtocol'`][] event.
   * `maxDefaultDynamicTableSize` {number} (TODO: Add detail)
   * `maxReservedRemoteStreams` {number} (TODO: Add detail)
   * `maxSendHeaderBlockLength` {number} (TODO: Add detail)
@@ -1113,3 +1118,4 @@ TBD
 [Settings Object]: #http2_settings_object
 [Using options.selectPadding]: #http2_using_options_selectpadding
 [error code]: #error_codes
+[`'unknownProtocol'`]: #http2_event_unknownprotocol

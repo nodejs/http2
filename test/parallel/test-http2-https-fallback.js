@@ -128,14 +128,9 @@ function onSession(session) {
     mustCall(onRequest)
   );
 
-  const expectedRejection = mustCall(expectsError({
-    code: 'ERR_SOCKET_REJECT_HTTP1',
-    type: TypeError,
-    message: 'HTTP/1 not allowed'
-  }), 2);
-  server.on('secureConnection', mustCall((socket) => {
-    socket.on('error', expectedRejection);
-  }, 3));
+  server.on('unknownProtocol', mustCall((socket) => {
+    socket.destroy();
+  }, 2));
 
   server.listen(0);
 
