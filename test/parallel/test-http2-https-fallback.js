@@ -4,8 +4,7 @@ const {
   fixturesDir,
   mustCall,
   mustNotCall,
-  platformTimeout,
-  expectsError
+  platformTimeout
 } = require('../common');
 const { strictEqual } = require('assert');
 const { join } = require('path');
