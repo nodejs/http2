@@ -74,8 +74,11 @@ assert.doesNotThrow(() => {
   server.setTimeout(common.platformTimeout(1000));
   server.listen(0, common.mustCall(() => {
     const port = server.address().port;
-    client = tls.connect({port: port, rejectUnauthorized: false},
-                         common.mustCall());
+    client = tls.connect({
+      port: port,
+      rejectUnauthorized: false,
+      ALPNProtocols: ['h2']
+    }, common.mustCall());
   }));
   timer = setTimeout(() => assert.fail('server timeout failed'),
                      common.platformTimeout(1100));
