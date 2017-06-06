@@ -19,7 +19,6 @@ function onStream(stream) {
     ':status': 200
   });
   stream.write(body);
-  stream.end();
 }
 
 server.listen(0);

@@ -199,11 +199,11 @@ inline int Nghttp2Session::Init(uv_loop_t* loop,
   }
 
   uv_prepare_init(loop_, &prep_);
-
   uv_prepare_start(&prep_, [](uv_prepare_t* t) {
     Nghttp2Session* session = ContainerOf(&Nghttp2Session::prep_, t);
     session->SendPendingData();
   });
+  uv_unref(reinterpret_cast<uv_handle_t*>(&prep_));
   return ret;
 }
 
@@ -545,6 +545,8 @@ Nghttp2Session::Callbacks::Callbacks(bool kHasGetPaddingCallback) {
     callbacks, OnStreamClose);
   nghttp2_session_callbacks_set_on_data_chunk_recv_callback(
     callbacks, OnDataChunkReceived);
+  nghttp2_session_callbacks_set_on_frame_not_send_callback(
+    callbacks, OnFrameNotSent);
 
   // nghttp2_session_callbacks_set_on_invalid_frame_recv(
   //   callbacks, OnInvalidFrameReceived);
