@@ -333,8 +333,8 @@ inline Environment::~Environment() {
   delete[] heap_space_statistics_buffer_;
   delete[] http_parser_buffer_;
   delete[] http2_socket_buffer_;
-  delete[] http2_default_settings_buffer_;
   delete[] http2_settings_buffer_;
+  delete[] http2_options_buffer_;
   delete[] http2_session_state_buffer_;
   delete[] http2_stream_state_buffer_;
   delete[] http2_padding_buffer_;
@@ -478,24 +478,24 @@ inline void Environment::set_heap_space_statistics_buffer(double* pointer) {
   heap_space_statistics_buffer_ = pointer;
 }
 
-inline int32_t* Environment::http2_default_settings_buffer() const {
-  CHECK_NE(http2_default_settings_buffer_, nullptr);
-  return http2_default_settings_buffer_;
-}
-
-inline void Environment::set_http2_default_settings_buffer(int32_t* pointer) {
-  CHECK_EQ(http2_default_settings_buffer_, nullptr);  // Should be set only once
-  http2_default_settings_buffer_ = pointer;
-}
-
-inline int32_t* Environment::http2_settings_buffer() const {
+inline uint32_t* Environment::http2_settings_buffer() const {
   CHECK_NE(http2_settings_buffer_, nullptr);
   return http2_settings_buffer_;
 }
 
-inline void Environment::set_http2_settings_buffer(int32_t* pointer) {
+inline void Environment::set_http2_settings_buffer(uint32_t* pointer) {
   CHECK_EQ(http2_settings_buffer_, nullptr);  // Should be set only once
   http2_settings_buffer_ = pointer;
+}
+
+inline uint32_t* Environment::http2_options_buffer() const {
+  CHECK_NE(http2_options_buffer_, nullptr);
+  return http2_options_buffer_;
+}
+
+inline void Environment::set_http2_options_buffer(uint32_t* pointer) {
+  CHECK_EQ(http2_options_buffer_, nullptr);  // Should be set only once
+  http2_options_buffer_ = pointer;
 }
 
 inline double* Environment::http2_session_state_buffer() const {

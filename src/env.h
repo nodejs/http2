@@ -139,7 +139,6 @@ namespace node {
   V(get_shared_array_buffer_id_string, "_getSharedArrayBufferId")             \
   V(gid_string, "gid")                                                        \
   V(handle_string, "handle")                                                  \
-  V(headertablesize_string, "headerTableSize")                                \
   V(heap_total_string, "heapTotal")                                           \
   V(heap_used_string, "heapUsed")                                             \
   V(homedir_string, "homedir")                                                \
@@ -149,7 +148,6 @@ namespace node {
   V(immediate_callback_string, "_immediateCallback")                          \
   V(infoaccess_string, "infoAccess")                                          \
   V(inherit_string, "inherit")                                                \
-  V(initialwindowsize_string, "initialWindowSize")                            \
   V(input_string, "input")                                                    \
   V(internal_string, "internal")                                              \
   V(ipv4_string, "IPv4")                                                      \
@@ -161,9 +159,6 @@ namespace node {
   V(kill_signal_string, "killSignal")                                         \
   V(mac_string, "mac")                                                        \
   V(max_buffer_string, "maxBuffer")                                           \
-  V(maxconcurrentstreams_string, "maxConcurrentStreams")                      \
-  V(maxframesize_string, "maxFrameSize")                                      \
-  V(maxheaderlistsize_string, "maxHeaderListSize")                            \
   V(message_string, "message")                                                \
   V(minttl_string, "minttl")                                                  \
   V(model_string, "model")                                                    \
@@ -181,6 +176,7 @@ namespace node {
   V(ondone_string, "ondone")                                                  \
   V(onerror_string, "onerror")                                                \
   V(onexit_string, "onexit")                                                  \
+  V(onframeerror_string, "onframeerror")                                      \
   V(ongetpadding_string, "ongetpadding")                                      \
   V(onhandshakedone_string, "onhandshakedone")                                \
   V(onhandshakestart_string, "onhandshakestart")                              \
@@ -267,14 +263,7 @@ namespace node {
   V(write_host_object_string, "_writeHostObject")                             \
   V(write_queue_size_string, "writeQueueSize")                                \
   V(x_forwarded_string, "x-forwarded-for")                                    \
-  V(zero_return_string, "ZERO_RETURN")                                        \
-  V(maxdeflatedynamictablesize_string, "maxDeflateDynamicTableSize")          \
-  V(maxreservedremotestreams_string, "maxReservedRemoteStreams")              \
-  V(maxsendheaderblocklength_string, "maxSendHeaderBlockLength")              \
-  V(peermaxconcurrentstreams_string, "peerMaxConcurrentStreams")              \
-  V(nohttpmessaging_string, "noHttpMessaging")                                \
-  V(norecvclientmagic_string, "noRecvClientMagic")                            \
-  V(paddingstrategy_string, "paddingStrategy")
+  V(zero_return_string, "ZERO_RETURN")
 
 #define ENVIRONMENT_STRONG_PERSISTENT_PROPERTIES(V)                           \
   V(as_external, v8::External)                                                \
@@ -607,11 +596,11 @@ class Environment {
   inline double* heap_space_statistics_buffer() const;
   inline void set_heap_space_statistics_buffer(double* pointer);
 
-  inline int32_t* http2_default_settings_buffer() const;
-  inline void set_http2_default_settings_buffer(int32_t* pointer);
+  inline uint32_t* http2_settings_buffer() const;
+  inline void set_http2_settings_buffer(uint32_t* pointer);
 
-  inline int32_t* http2_settings_buffer() const;
-  inline void set_http2_settings_buffer(int32_t* pointer);
+  inline uint32_t* http2_options_buffer() const;
+  inline void set_http2_options_buffer(uint32_t* pointer);
 
   inline double* http2_session_state_buffer() const;
   inline void set_http2_session_state_buffer(double* pointer);
@@ -735,8 +724,8 @@ class Environment {
 
   double* heap_statistics_buffer_ = nullptr;
   double* heap_space_statistics_buffer_ = nullptr;
-  int32_t* http2_default_settings_buffer_ = nullptr;
-  int32_t* http2_settings_buffer_ = nullptr;
+  uint32_t* http2_settings_buffer_ = nullptr;
+  uint32_t* http2_options_buffer_ = nullptr;
   double* http2_session_state_buffer_ = nullptr;
   double* http2_stream_state_buffer_ = nullptr;
   uint32_t* http2_padding_buffer_ = nullptr;
