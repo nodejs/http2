@@ -12,8 +12,6 @@ using v8::Integer;
 
 namespace http2 {
 
-static const int kDefaultSettingsCount = 4;
-
 enum Http2SettingsIndex {
   IDX_SETTINGS_HEADER_TABLE_SIZE,
   IDX_SETTINGS_ENABLE_PUSH,
@@ -47,25 +45,51 @@ enum Http2StreamStateIndex {
   IDX_STREAM_STATE_COUNT
 };
 
-Http2Options::Http2Options(Environment* env, Local<Value> options) {
-  nghttp2_option_new(&options_);
-  if (options->IsObject()) {
-    Local<Object> opts = options.As<Object>();
-  Local<Context> context = env->context();
+enum Http2OptionsIndex {
+  IDX_OPTIONS_MAX_DEFLATE_DYNAMIC_TABLE_SIZE,
+  IDX_OPTIONS_MAX_RESERVED_REMOTE_STREAMS,
+  IDX_OPTIONS_MAX_SEND_HEADER_BLOCK_LENGTH,
+  IDX_OPTIONS_PEER_MAX_CONCURRENT_STREAMS,
+  IDX_OPTIONS_PADDING_STRATEGY,
+  IDX_OPTIONS_FLAGS
+};
 
-#define V(obj, name, fn, type)                                                \
-  do {                                                                        \
-    if (obj->Has(context, env->name()).FromJust()) {                          \
-      Local<Value> val = obj->Get(context, env->name()).ToLocalChecked();     \
-      if (!val->IsUndefined() && !val->IsNull())                              \
-        fn(val->type##Value());                                               \
-    }                                                                         \
-  } while (0);
-    OPTIONS(opts, V)
-#undef V
+Http2Options::Http2Options(Environment* env) {
+  nghttp2_option_new(&options_);
+
+  uint32_t* buffer = env->http2_options_buffer();
+  uint32_t flags = buffer[IDX_OPTIONS_FLAGS];
+
+  if ((flags & (1 << IDX_OPTIONS_MAX_DEFLATE_DYNAMIC_TABLE_SIZE)) ==
+      (1 << IDX_OPTIONS_MAX_DEFLATE_DYNAMIC_TABLE_SIZE)) {
+    SetMaxDeflateDynamicTableSize(
+        buffer[IDX_OPTIONS_MAX_DEFLATE_DYNAMIC_TABLE_SIZE]);
+  }
+
+  if ((flags & (1 << IDX_OPTIONS_MAX_RESERVED_REMOTE_STREAMS)) ==
+      (1 << IDX_OPTIONS_MAX_RESERVED_REMOTE_STREAMS)) {
+    SetMaxReservedRemoteStreams(
+        buffer[IDX_OPTIONS_MAX_RESERVED_REMOTE_STREAMS]);
+  }
+
+  if ((flags & (1 << IDX_OPTIONS_MAX_SEND_HEADER_BLOCK_LENGTH)) ==
+      (1 << IDX_OPTIONS_MAX_SEND_HEADER_BLOCK_LENGTH)) {
+    SetMaxSendHeaderBlockLength(
+        buffer[IDX_OPTIONS_MAX_SEND_HEADER_BLOCK_LENGTH]);
+  }
+
+  SetPeerMaxConcurrentStreams(100);  // Recommended default
+  if ((flags & (1 << IDX_OPTIONS_PEER_MAX_CONCURRENT_STREAMS)) ==
+      (1 << IDX_OPTIONS_PEER_MAX_CONCURRENT_STREAMS)) {
+    SetPeerMaxConcurrentStreams(
+        buffer[IDX_OPTIONS_PEER_MAX_CONCURRENT_STREAMS]);
+  }
+
+  if ((flags & (1 << IDX_OPTIONS_PADDING_STRATEGY)) ==
+      (1 << IDX_OPTIONS_PADDING_STRATEGY)) {
+    SetPaddingStrategy(buffer[IDX_OPTIONS_PADDING_STRATEGY]);
   }
 }
-#undef OPTIONS
 
 inline void CopyHeaders(Isolate* isolate,
                         MaybeStackBuffer<nghttp2_nv>* list,
@@ -166,24 +190,60 @@ void HttpErrorString(const FunctionCallbackInfo<Value>& args) {
 // output for an HTTP2-Settings header field.
 void PackSettings(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
-  Local<Context> context = env->context();
   HandleScope scope(env->isolate());
 
-  CHECK(args[0]->IsObject());
-  Local<Object> obj = args[0].As<Object>();
   std::vector<nghttp2_settings_entry> entries;
 
-#define V(name, id, type, c)                                                  \
-  do {                                                                        \
-     if (obj->Has(context, env->name()).FromJust()) {                         \
-       Local<Value> val = obj->Get(context,                                   \
-                                   env->name()).ToLocalChecked();             \
-       if (!val->IsUndefined() && !val->IsNull())                             \
-         entries.push_back({id, val->Uint32Value()});                         \
-     }                                                                        \
-  } while (0);
-  SETTINGS(V)
-#undef V
+  uint32_t* const buffer = env->http2_settings_buffer();
+  uint32_t flags = buffer[IDX_SETTINGS_COUNT];
+
+  if ((flags & (1 << IDX_SETTINGS_HEADER_TABLE_SIZE)) ==
+      (1 << IDX_SETTINGS_HEADER_TABLE_SIZE)) {
+    DEBUG_HTTP2("Setting header table size: %d\n",
+                buffer[IDX_SETTINGS_HEADER_TABLE_SIZE]);
+    entries.push_back({NGHTTP2_SETTINGS_HEADER_TABLE_SIZE,
+                       buffer[IDX_SETTINGS_HEADER_TABLE_SIZE]});
+  }
+
+  if ((flags & (1 << IDX_SETTINGS_MAX_CONCURRENT_STREAMS)) ==
+      (1 << IDX_SETTINGS_MAX_CONCURRENT_STREAMS)) {
+    DEBUG_HTTP2("Setting max concurrent streams: %d\n",
+                buffer[IDX_SETTINGS_MAX_CONCURRENT_STREAMS]);
+    entries.push_back({NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS,
+                       buffer[IDX_SETTINGS_MAX_CONCURRENT_STREAMS]});
+  }
+
+  if ((flags & (1 << IDX_SETTINGS_MAX_FRAME_SIZE)) ==
+      (1 << IDX_SETTINGS_MAX_FRAME_SIZE)) {
+    DEBUG_HTTP2("Setting max frame size: %d\n",
+                buffer[IDX_SETTINGS_MAX_FRAME_SIZE]);
+    entries.push_back({NGHTTP2_SETTINGS_MAX_FRAME_SIZE,
+                       buffer[IDX_SETTINGS_MAX_FRAME_SIZE]});
+  }
+
+  if ((flags & (1 << IDX_SETTINGS_INITIAL_WINDOW_SIZE)) ==
+      (1 << IDX_SETTINGS_INITIAL_WINDOW_SIZE)) {
+    DEBUG_HTTP2("Setting initial window size: %d\n",
+                buffer[IDX_SETTINGS_INITIAL_WINDOW_SIZE]);
+    entries.push_back({NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE,
+                       buffer[IDX_SETTINGS_INITIAL_WINDOW_SIZE]});
+  }
+
+  if ((flags & (1 << IDX_SETTINGS_MAX_HEADER_LIST_SIZE)) ==
+      (1 << IDX_SETTINGS_MAX_HEADER_LIST_SIZE)) {
+    DEBUG_HTTP2("Setting max header list size: %d\n",
+                buffer[IDX_SETTINGS_MAX_HEADER_LIST_SIZE]);
+    entries.push_back({NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE,
+                       buffer[IDX_SETTINGS_MAX_HEADER_LIST_SIZE]});
+  }
+
+  if ((flags & (1 << IDX_SETTINGS_ENABLE_PUSH)) ==
+      (1 << IDX_SETTINGS_ENABLE_PUSH)) {
+    DEBUG_HTTP2("Setting enable push: %d\n",
+                buffer[IDX_SETTINGS_ENABLE_PUSH]);
+    entries.push_back({NGHTTP2_SETTINGS_ENABLE_PUSH,
+                       buffer[IDX_SETTINGS_ENABLE_PUSH]});
+  }
 
   const size_t len = entries.size() * 6;
   MaybeStackBuffer<char> buf(len);
@@ -200,7 +260,7 @@ void PackSettings(const FunctionCallbackInfo<Value>& args) {
 void RefreshDefaultSettings(const FunctionCallbackInfo<Value>& args) {
   DEBUG_HTTP2("Http2Session: refreshing default settings\n");
   Environment* env = Environment::GetCurrent(args);
-  int32_t* const buffer = env->http2_default_settings_buffer();
+  uint32_t* const buffer = env->http2_settings_buffer();
   buffer[IDX_SETTINGS_HEADER_TABLE_SIZE] =
       DEFAULT_SETTINGS_HEADER_TABLE_SIZE;
   buffer[IDX_SETTINGS_ENABLE_PUSH] =
@@ -209,6 +269,11 @@ void RefreshDefaultSettings(const FunctionCallbackInfo<Value>& args) {
       DEFAULT_SETTINGS_INITIAL_WINDOW_SIZE;
   buffer[IDX_SETTINGS_MAX_FRAME_SIZE] =
       DEFAULT_SETTINGS_MAX_FRAME_SIZE;
+  buffer[IDX_SETTINGS_COUNT] =
+    (1 << IDX_SETTINGS_HEADER_TABLE_SIZE) |
+    (1 << IDX_SETTINGS_ENABLE_PUSH) |
+    (1 << IDX_SETTINGS_INITIAL_WINDOW_SIZE) |
+    (1 << IDX_SETTINGS_MAX_FRAME_SIZE);
 }
 
 template <get_setting fn>
@@ -221,7 +286,7 @@ void RefreshSettings(const FunctionCallbackInfo<Value>& args) {
   Environment* env = session->env();
   nghttp2_session* s = session->session();
 
-  int32_t* const buffer = env->http2_settings_buffer();
+  uint32_t* const buffer = env->http2_settings_buffer();
   buffer[IDX_SETTINGS_HEADER_TABLE_SIZE] =
       fn(s, NGHTTP2_SETTINGS_HEADER_TABLE_SIZE);
   buffer[IDX_SETTINGS_MAX_CONCURRENT_STREAMS] =
@@ -323,7 +388,7 @@ void Http2Session::New(const FunctionCallbackInfo<Value>& args) {
   nghttp2_session_type type =
     static_cast<nghttp2_session_type>(args[0]->IntegerValue());
   DEBUG_HTTP2("Http2Session: creating a session of type: %d\n", type);
-  new Http2Session(env, args.This(), type, args[1]);
+  new Http2Session(env, args.This(), type);
 }
 
 
@@ -371,34 +436,67 @@ void Http2Session::SubmitPriority(const FunctionCallbackInfo<Value>& args) {
 }
 
 void Http2Session::SubmitSettings(const FunctionCallbackInfo<Value>& args) {
-  CHECK(args[0]->IsObject());
-
   Http2Session* session;
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
 
   Environment* env = session->env();
-  Local<Context> context = env->context();
 
-  // Collect the settings
-  Local<Object> obj = args[0].As<Object>();
+  uint32_t* const buffer = env->http2_settings_buffer();
+  uint32_t flags = buffer[IDX_SETTINGS_COUNT];
+
   std::vector<nghttp2_settings_entry> entries;
-  entries.reserve(6);   // There are currently six known settings
-#define V(name, id, type, c)                                                \
-  do {                                                                      \
-     if (obj->Has(context, env->name()).FromJust()) {                       \
-       Local<Value> val = obj->Get(context,                                 \
-                                   env->name()).ToLocalChecked();           \
-       if (!val->IsUndefined() && !val->IsNull())                           \
-         entries.push_back({id, val->Uint32Value()});                       \
-     }                                                                      \
-  } while (0);
-  SETTINGS(V)
-#undef V
+
+  if ((flags & (1 << IDX_SETTINGS_HEADER_TABLE_SIZE)) ==
+      (1 << IDX_SETTINGS_HEADER_TABLE_SIZE)) {
+    DEBUG_HTTP2("Setting header table size: %d\n",
+                buffer[IDX_SETTINGS_HEADER_TABLE_SIZE]);
+    entries.push_back({NGHTTP2_SETTINGS_HEADER_TABLE_SIZE,
+                       buffer[IDX_SETTINGS_HEADER_TABLE_SIZE]});
+  }
+
+  if ((flags & (1 << IDX_SETTINGS_MAX_CONCURRENT_STREAMS)) ==
+      (1 << IDX_SETTINGS_MAX_CONCURRENT_STREAMS)) {
+    DEBUG_HTTP2("Setting max concurrent streams: %d\n",
+                buffer[IDX_SETTINGS_MAX_CONCURRENT_STREAMS]);
+    entries.push_back({NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS,
+                       buffer[IDX_SETTINGS_MAX_CONCURRENT_STREAMS]});
+  }
+
+  if ((flags & (1 << IDX_SETTINGS_MAX_FRAME_SIZE)) ==
+      (1 << IDX_SETTINGS_MAX_FRAME_SIZE)) {
+    DEBUG_HTTP2("Setting max frame size: %d\n",
+                buffer[IDX_SETTINGS_MAX_FRAME_SIZE]);
+    entries.push_back({NGHTTP2_SETTINGS_MAX_FRAME_SIZE,
+                       buffer[IDX_SETTINGS_MAX_FRAME_SIZE]});
+  }
+
+  if ((flags & (1 << IDX_SETTINGS_INITIAL_WINDOW_SIZE)) ==
+      (1 << IDX_SETTINGS_INITIAL_WINDOW_SIZE)) {
+    DEBUG_HTTP2("Setting initial window size: %d\n",
+                buffer[IDX_SETTINGS_INITIAL_WINDOW_SIZE]);
+    entries.push_back({NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE,
+                       buffer[IDX_SETTINGS_INITIAL_WINDOW_SIZE]});
+  }
+
+  if ((flags & (1 << IDX_SETTINGS_MAX_HEADER_LIST_SIZE)) ==
+      (1 << IDX_SETTINGS_MAX_HEADER_LIST_SIZE)) {
+    DEBUG_HTTP2("Setting max header list size: %d\n",
+                buffer[IDX_SETTINGS_MAX_HEADER_LIST_SIZE]);
+    entries.push_back({NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE,
+                       buffer[IDX_SETTINGS_MAX_HEADER_LIST_SIZE]});
+  }
+
+  if ((flags & (1 << IDX_SETTINGS_ENABLE_PUSH)) ==
+      (1 << IDX_SETTINGS_ENABLE_PUSH)) {
+    DEBUG_HTTP2("Setting enable push: %d\n",
+                buffer[IDX_SETTINGS_ENABLE_PUSH]);
+    entries.push_back({NGHTTP2_SETTINGS_ENABLE_PUSH,
+                       buffer[IDX_SETTINGS_ENABLE_PUSH]});
+  }
 
   args.GetReturnValue().Set(
       session->Nghttp2Session::SubmitSettings(&entries[0], entries.size()));
 }
-
 
 void Http2Session::SubmitRstStream(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[0]->IsNumber());
@@ -859,13 +957,35 @@ void Http2Session::OnDataChunk(
   EmitData(chunk->buf.len, buf, obj);
 }
 
-void Http2Session::OnSettings() {
+void Http2Session::OnSettings(bool ack) {
   Local<Context> context = env()->context();
   Isolate* isolate = env()->isolate();
   HandleScope scope(isolate);
   if (object()->Has(context, env()->onsettings_string()).FromJust()) {
     v8::TryCatch try_catch(isolate);
-    Local<Value> ret = MakeCallback(env()->onsettings_string(), 0, nullptr);
+    Local<Value> argv[1] = { Boolean::New(isolate, ack) };
+    Local<Value> ret = MakeCallback(env()->onsettings_string(),
+                                    arraysize(argv), argv);
+    if (ret.IsEmpty()) {
+      ClearFatalExceptionHandlers(env());
+      FatalException(isolate, try_catch);
+    }
+  }
+}
+
+void Http2Session::OnFrameError(int32_t id, uint8_t type, int error_code) {
+  Local<Context> context = env()->context();
+  Isolate* isolate = env()->isolate();
+  HandleScope scope(isolate);
+  if (object()->Has(context, env()->onframeerror_string()).FromJust()) {
+    v8::TryCatch try_catch(isolate);
+    Local<Value> argv[3] = {
+      Integer::New(isolate, id),
+      Integer::New(isolate, type),
+      Integer::New(isolate, error_code)
+    };
+    Local<Value> ret = MakeCallback(env()->onframeerror_string(),
+                                    arraysize(argv), argv);
     if (ret.IsEmpty()) {
       ClearFatalExceptionHandlers(env());
       FatalException(isolate, try_catch);
@@ -1004,33 +1124,33 @@ void Initialize(Local<Object> target,
                                env->http2_stream_state_buffer(),
                                http2_stream_state_buffer_byte_length));
 
-  // Initialize the buffer used to store the default settings
-  env->set_http2_default_settings_buffer(
-      new int32_t[kDefaultSettingsCount]);
-
-  const size_t http2_default_settings_buffer_byte_length =
-      sizeof(*env->http2_default_settings_buffer()) *
-      kDefaultSettingsCount;
-
-  target->Set(FIXED_ONE_BYTE_STRING(env->isolate(),
-                                    "defaultSettingsArrayBuffer"),
-              ArrayBuffer::New(env->isolate(),
-                               env->http2_default_settings_buffer(),
-                               http2_default_settings_buffer_byte_length));
-
-  // Initialize the buffer used to store the default settings
+  // Initialize the buffer used to store the current settings
   env->set_http2_settings_buffer(
-      new int32_t[IDX_SETTINGS_COUNT]);
+      new uint32_t[IDX_SETTINGS_COUNT + 1]);
 
   const size_t http2_settings_buffer_byte_length =
       sizeof(*env->http2_settings_buffer()) *
-      IDX_SETTINGS_COUNT;
+      (IDX_SETTINGS_COUNT + 1);
 
   target->Set(FIXED_ONE_BYTE_STRING(env->isolate(),
                                     "settingsArrayBuffer"),
               ArrayBuffer::New(env->isolate(),
                                env->http2_settings_buffer(),
                                http2_settings_buffer_byte_length));
+
+  // Initialize the buffer used to store the options
+  env->set_http2_options_buffer(
+      new uint32_t[IDX_OPTIONS_FLAGS + 1]);
+
+  const size_t http2_options_buffer_byte_length =
+      sizeof(*env->http2_options_buffer()) *
+      (IDX_OPTIONS_FLAGS + 1);
+
+  target->Set(FIXED_ONE_BYTE_STRING(env->isolate(),
+                                    "optionsArrayBuffer"),
+              ArrayBuffer::New(env->isolate(),
+                               env->http2_options_buffer(),
+                               http2_options_buffer_byte_length));
 
   // Method to fetch the nghttp2 string description of an nghttp2 error code
   env->SetMethod(target, "nghttp2ErrorString", HttpErrorString);
@@ -1124,6 +1244,7 @@ void Initialize(Local<Object> target,
   NODE_DEFINE_HIDDEN_CONSTANT(constants, NGHTTP2_ERR_STREAM_ID_NOT_AVAILABLE);
   NODE_DEFINE_HIDDEN_CONSTANT(constants, NGHTTP2_ERR_INVALID_ARGUMENT);
   NODE_DEFINE_HIDDEN_CONSTANT(constants, NGHTTP2_ERR_STREAM_CLOSED);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_ERR_FRAME_SIZE_ERROR);
 
   NODE_DEFINE_CONSTANT(constants, NGHTTP2_FLAG_NONE);
   NODE_DEFINE_CONSTANT(constants, NGHTTP2_FLAG_END_STREAM);

@@ -35,7 +35,6 @@ function checkRstCode(rstMethod, expectRstCode) {
     req.on('data', common.mustCall());
     req.on('aborted', common.mustCall());
     req.on('end', common.mustCall());
-    req.end();
   }));
 }
 
