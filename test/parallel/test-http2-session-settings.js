@@ -34,16 +34,68 @@ server.listen(0);
 
 server.on('listening', common.mustCall(() => {
 
-  const client = h2.connect(`http://localhost:${server.address().port}`);
+  const client = h2.connect(`http://localhost:${server.address().port}`, {
+    settings: {
+      enablePush: false,
+      initialWindowSize: 123456
+    }
+  });
+
+  client.on('localSettings', common.mustCall((settings) => {
+    assert(settings);
+    assert.strictEqual(settings.enablePush, false);
+    assert.strictEqual(settings.initialWindowSize, 123456);
+    assert.strictEqual(settings.maxFrameSize, 16384);
+  }, 2));
+  client.on('remoteSettings', common.mustCall((settings) => {
+    assert(settings);
+  }));
 
   const headers = { ':path': '/' };
 
   const req = client.request(headers);
 
-  // State will only be valid after connect event is emitted
   req.on('connect', common.mustCall(() => {
-    assertSettings(client.localSettings);
-    assertSettings(client.remoteSettings);
+    // pendingSettingsAck will be true if a SETTINGS frame
+    // has been sent but we are still waiting for an acknowledgement
+    assert(client.pendingSettingsAck);
+  }));
+
+  // State will only be valid after connect event is emitted
+  req.on('ready', common.mustCall(() => {
+    assert.doesNotThrow(() => {
+      client.settings({
+        maxHeaderListSize: 1
+      });
+    });
+
+    // Verify valid error ranges
+    [
+      ['headerTableSize', -1],
+      ['headerTableSize', 2 ** 32],
+      ['initialWindowSize', -1],
+      ['initialWindowSize', 2 ** 32],
+      ['maxFrameSize', 16383],
+      ['maxFrameSize', 2 ** 24],
+      ['maxHeaderListSize', -1],
+      ['maxHeaderListSize', 2 ** 32]
+    ].forEach((i) => {
+      const settings = {};
+      settings[i[0]] = i[1];
+      assert.throws(() => client.settings(settings),
+                    common.expectsError({
+                      code: 'ERR_HTTP2_INVALID_SETTING_VALUE',
+                      type: RangeError
+                    }));
+    });
+    [1, {}, 'test', [], null, Infinity, NaN].forEach((i) => {
+      assert.throws(() => client.settings({enablePush: i}),
+                    common.expectsError({
+                      code: 'ERR_HTTP2_INVALID_SETTING_VALUE',
+                      type: TypeError
+                    }));
+    });
+
   }));
 
   req.on('response', common.mustCall());

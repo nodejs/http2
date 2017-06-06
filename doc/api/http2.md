@@ -102,6 +102,56 @@ connected to the remote peer and communication may begin.
 The `'error'` event is emitted when an error occurs during the processing of
 an `Http2Session`.
 
+#### Event: 'frameError'
+
+The `'frameError'` event is emitted when an error occurs while attempting to
+send a frame on the session. If the frame that could not be sent is associated
+with a specific `Http2Stream`, an attempt to emit `'frameError'` event on the
+`Http2Stream` is made. If the `Http2Stream` `'frameError'` event is not handled,
+the `'frameError'` is emitted on the `Http2Session`.
+
+When invoked, the handler function will receive three arguments:
+
+* An integer identifying the frame type.
+* An integer identifying the error code.
+* An integer identifying the stream (or 0 if the frame is not associated with
+  a stream).
+
+If the `'frameError'` event is associated with a stream, the stream will be
+closed and destroyed immediately following the `'frameError'` event. If the
+event is not associated with a stream, the `Http2Session` will be shutdown
+immediately following the `'frameError'` event.
+
+#### Event: 'localSettings'
+
+The `'localSettings'` event is emitted when an acknowledgement SETTINGS frame
+has been received. When invoked, the handler function will receive a copy of
+the local settings.
+
+*Note*: When using `http2session.settings()` to submit new settings, the
+modified settings do not take effect until the `'localSettings'` event is
+emitted.
+
+```js
+session.settings({ enablePush: false });
+
+session.on('localSettings', (settings) => {
+  /** use the new settings **/
+});
+```
+
+#### Event: 'remoteSettings'
+
+The `'remoteSettings'` event is emitted when a new SETTINGS frame is received
+from the connected peer. When invoked, the handle function will receive a copy
+of the remote settings.
+
+```js
+session.on('remoteSettings', (settings) => {
+  /** use the new settings **/
+});
+```
+
 #### Event: 'stream'
 
 The `'stream'` event is emitted when a new `Http2Stream` is created. When
@@ -175,6 +225,8 @@ session.on('timeout', () => { /** .. **/ });
 
 #### http2session.destroy()
 
+* Returns: {undefined}
+
 Immediately terminates the `Http2Session` and the associated `net.Socket` or
 `tls.TLSSocket`.
 
@@ -191,6 +243,15 @@ longer be used, otherwise `false`.
 
 A prototype-less object describing the current local settings of this
 `Http2Session`. The local settings are local to *this* `Http2Session` instance.
+
+#### http2session.pendingSettingsAck
+
+* Value: {boolean}
+
+Indicates whether or not the `Http2Session` is currently waiting for an
+acknowledgement for a sent SETTINGS frame. Will be `true` after calling the
+`http2session.settings()` method. Will be `false` once all sent SETTINGS
+frames have been acknowledged.
 
 #### http2session.remoteSettings
 
@@ -215,6 +276,7 @@ A prototype-less object describing the current remote settings of this
   * `weight` {number} Specifies the relative dependency of a stream in relation
     to other streams with the same `parent`. The value is a number between `1`
     and `256` (inclusive).
+* Returns: {ClientHttp2Stream}
 
 For HTTP/2 Client `Http2Session` instances only, the `http2session.request()`
 creates and returns an `Http2Stream` instance that can be used to send an
@@ -244,6 +306,7 @@ req.on('response', (headers) => {
 * stream {Http2Stream}
 * code {number} Unsigned 32-bit integer identifying the error code. Defaults to
   `http2.constant.NGHTTP2_NO_ERROR` (`0x00`)
+* Returns: {undefined}
 
 Sends an `RST_STREAM` frame to the connected HTTP/2 peer, causing the given
 `Http2Stream` to be closed on both sides using [error code][] `code`.
@@ -252,6 +315,7 @@ Sends an `RST_STREAM` frame to the connected HTTP/2 peer, causing the given
 
 * `msecs` {number}
 * `callback` {Function}
+* Returns: {undefined}
 
 Used to set a callback function that is called when there is no activity on
 the `Http2Session` after `msecs` milliseconds. The given `callback` is
@@ -272,6 +336,7 @@ registered as a listener on the `'timeout'` event.
     provide additional data for debugging failures, if necessary.
 * `callback` {Function} A callback that is invoked after the session shutdown
   has been completed.
+* Returns: {undefined}
 
 Attempts to shutdown this `Http2Session` using HTTP/2 defined procedures.
 If specified, the given `callback` function will be invoked once the shutdown
@@ -333,10 +398,11 @@ An object describing the current status of this `Http2Session`.
   * `weight` {number} Specifies the relative dependency of a stream in relation
     to other streams with the same `parent`. The value is a number between `1`
     and `256` (inclusive).
+  * `silent` {boolean} When `true`, changes the priority locally without
+    sending a `PRIORITY` frame to the connected peer.
+* Returns: {undefined}
 
-Updates the priority for the given `Http2Stream` instance. If `options.silent`
-is `false`, causes a new `PRIORITY` frame to be sent to the connected HTTP/2
-peer.
+Updates the priority for the given `Http2Stream` instance.
 
 #### http2session.settings(settings)
 
@@ -345,6 +411,15 @@ peer.
 
 Updates the current local settings for this `Http2Session` and sends a new
 `SETTINGS` frame to the connected HTTP/2 peer.
+
+Once called, the `http2session.pendingSettingsAck` property will be `true`
+while the session is waiting for the remote peer to acknowledge the new
+settings.
+
+*Note*: The new settings will not become effective until the SETTINGS
+acknowledgement is received and the `'localSettings'` event is emitted. It
+is possible to send multiple SETTINGS frames while acknowledgement is still
+pending.
 
 #### http2session.type
 
@@ -430,6 +505,9 @@ destroyed.
 The `'aborted'` event is emitted whenever a `Http2Stream` instance is
 abnormally aborted in mid-communication.
 
+*Note*: The `'aborted'` event will only be emitted if the `Http2Stream`
+writable side has not been ended.
+
 #### Event: 'error'
 
 The `'error'` event is emitted when an error occurs during the processing of
@@ -452,6 +530,17 @@ stream.on('fetchTrailers', (trailers) => {
 "pseudo-header" fields (e.g. `':status'`, `':path'`, etc). An `'error'` event
 will be emitted if the `'fetchTrailers'` event handler attempts to set such
 header fields.
+
+#### Event: 'frameError'
+
+The `'frameError'` event is emitted when an error occurs while attempting to
+send a frame on the stream. When invoked, the handler function will receive
+an integer argument identifying the frame type, and an integer argument
+identifying the error code. The `Http2Stream` instance will be destroyed
+immediately after the `'frameError'` event is emitted.
+
+If the `'frameError'` event is not handled on the `Http2Stream` object, a
+`'frameError'` event will be emitted on the owning `Http2Session` object.
 
 #### Event: 'streamClosed'
 
@@ -476,6 +565,13 @@ stream.on('trailers', (headers, flags) => {
 });
 ```
 
+#### http2stream.aborted
+
+* Value: {boolean}
+
+Set to `true` if the `Http2Stream` instance was aborted abnormally. When set,
+the `'aborted'` event will have been emitted.
+
 #### http2stream.destroyed
 
 * Value: {boolean}
@@ -495,10 +591,11 @@ usable.
   * `weight` {number} Specifies the relative dependency of a stream in relation
     to other streams with the same `parent`. The value is a number between `1`
     and `256` (inclusive).
+  * `silent` {boolean} When `true`, changes the priority locally without
+    sending a `PRIORITY` frame to the connected peer.
+* Returns: {undefined}
 
-Updates the priority for this `Http2Stream` instance. If `options.silent`
-is `false`, causes a new `PRIORITY` frame to be sent to the connected HTTP/2
-peer.
+Updates the priority for this `Http2Stream` instance.
 
 #### http2stream.rstCode
 
@@ -513,27 +610,38 @@ calling `http2stream.rstStream()`, or `http2stream.destroy()`. Will be
 
 * code {number} Unsigned 32-bit integer identifying the error code. Defaults to
   `http2.constant.NGHTTP2_NO_ERROR` (`0x00`)
+* Returns: {undefined}
 
 Sends an `RST_STREAM` frame to the connected HTTP/2 peer, causing this
 `Http2Stream` to be closed on both sides using [error code][] `code`.
 
 #### http2stream.rstWithNoError()
 
+* Returns: {undefined}
+
 Shortcut for `http2stream.rstStream()` using error code `0x00` (No Error).
 
 #### http2stream.rstWithProtocolError() {
+
+* Returns: {undefined}
 
 Shortcut for `http2stream.rstStream()` using error code `0x01` (Protocol Error).
 
 #### http2stream.rstWithCancel() {
 
+* Returns: {undefined}
+
 Shortcut for `http2stream.rstStream()` using error code `0x08` (Cancel).
 
 #### http2stream.rstWithRefuse() {
 
+* Returns: {undefined}
+
 Shortcut for `http2stream.rstStream()` using error code `0x07` (Refused Stream).
 
 #### http2stream.rstWithInternalError() {
+
+* Returns: {undefined}
 
 Shortcut for `http2stream.rstStream()` using error code `0x02` (Internal Error).
 
@@ -548,6 +656,7 @@ value will be `undefined` after the `Http2Stream` instance is destroyed.
 
 * `msecs` {number}
 * `callback` {Function}
+* Returns: {undefined}
 
 ```js
 const http2 = require('http2');
@@ -635,6 +744,7 @@ provide additional methods such as `http2stream.pushStream()` and
 #### http2stream.additionalHeaders(headers)
 
 * `headers` {[Headers Object][]}
+* Returns: {undefined}
 
 Sends an additional informational `HEADERS` frame to the connected HTTP/2 peer.
 
@@ -653,6 +763,7 @@ Sends an additional informational `HEADERS` frame to the connected HTTP/2 peer.
     and `256` (inclusive).
 * `callback` {Function} Callback that is called once the push stream has been
   initiated.
+* Returns: {undefined}
 
 Initiates a push stream. The callback is invoked with the new `Htt2Stream`
 instance created for the push stream.
@@ -674,6 +785,7 @@ server.on('stream', (stream) => {
 
 * `headers` {[Headers Object][]}
 * `options` {Object}
+* Returns: {undefined}
 
 ```js
 const http2 = require('http2');
@@ -820,12 +932,12 @@ console.log(packed.toString('base64'));
 ### http2.createServer(options[, onRequestHandler])
 
 * `options` {Object}
-* `options` {Object}
-  * `maxDefaultDynamicTableSize` {number} (TODO: Add detail)
-  * `maxReservedRemoteStreams` {number} (TODO: Add detail)
-  * `maxSendHeaderBlockLength` {number} (TODO: Add detail)
-  * `noHttpMessaging` {boolean} (TODO: Add detail)
-  * `noRecvClientMagic` {boolean} (TODO: Add detail)
+  * `maxDeflateDynamicTableSize` {number} Sets the maximum dynamic table size
+    for deflating header fields. Defaults to 4Kib.
+  * `maxSendHeaderBlockLength` {number} Sets the maximum allowed size for a
+    serialized, compressed block of headers. Attempts to send headers that
+    exceed this limit will result in a `'frameError'` event being emitted
+    and the stream being closed and destroyed.
   * `paddingStrategy` {number} Identifies the strategy used for determining the
      amount of padding to use for HEADERS and DATA frames. Defaults to
      `http2.constants.PADDING_STRATEGY_NONE`. Value may be one of:
@@ -837,14 +949,17 @@ console.log(packed.toString('base64'));
      * `http2.constants.PADDING_STRATEGY_CALLBACK` - Specifies that the user
        provided `options.selectPadding` callback is to be used to determine the
        amount of padding.
-  * `peerMaxConcurrentStreams` {number} (TODO: Add detail)
+  * `peerMaxConcurrentStreams` {number} Sets the maximum number of concurrent
+    streams for the remote peer as if a SETTINGS frame had been received. Will
+    be overridden if the remote peer sets its own value for
+    `maxConcurrentStreams`. Defaults to 100.
   * `selectPadding` {Function} When `options.paddingStrategy` is equal to
     `http2.constants.PADDING_STRATEGY_CALLBACK`, provides the callback function
     used to determine the padding. See [Using options.selectPadding][].
   * `settings` {[Settings Object][]} The initial settings to send to the
     remote peer upon connection.
 * `onRequestHandler` {Function} See [Compatibility API][]
-* Returns: `http2.Http2Server`
+* Returns: {Http2Server}
 
 Returns a `net.Server` instance that creates and manages `Http2Session`
 instances.
@@ -872,11 +987,12 @@ server.listen(80);
   * `allowHTTP1` {boolean} Incoming client connections that do not support
     HTTP/2 will be downgraded to HTTP/1.x when set to `true`. The default value
     is `false`. See the [`'unknownProtocol'`][] event.
-  * `maxDefaultDynamicTableSize` {number} (TODO: Add detail)
-  * `maxReservedRemoteStreams` {number} (TODO: Add detail)
-  * `maxSendHeaderBlockLength` {number} (TODO: Add detail)
-  * `noHttpMessaging` {boolean} (TODO: Add detail)
-  * `noRecvClientMagic` {boolean} (TODO: Add detail)
+  * `maxDeflateDynamicTableSize` {number} Sets the maximum dynamic table size
+    for deflating header fields. Defaults to 4Kib.
+  * `maxSendHeaderBlockLength` {number} Sets the maximum allowed size for a
+    serialized, compressed block of headers. Attempts to send headers that
+    exceed this limit will result in a `'frameError'` event being emitted
+    and the stream being closed and destroyed.
   * `paddingStrategy` {number} Identifies the strategy used for determining the
      amount of padding to use for HEADERS and DATA frames. Defaults to
      `http2.constants.PADDING_STRATEGY_NONE`. Value may be one of:
@@ -888,7 +1004,10 @@ server.listen(80);
      * `http2.constants.PADDING_STRATEGY_CALLBACK` - Specifies that the user
        provided `options.selectPadding` callback is to be used to determine the
        amount of padding.
-  * `peerMaxConcurrentStreams` {number} (TODO: Add detail)
+  * `peerMaxConcurrentStreams` {number} Sets the maximum number of concurrent
+    streams for the remote peer as if a SETTINGS frame had been received. Will
+    be overridden if the remote peer sets its own value for
+    `maxConcurrentStreams`. Defaults to 100.
   * `selectPadding` {Function} When `options.paddingStrategy` is equal to
     `http2.constants.PADDING_STRATEGY_CALLBACK`, provides the callback function
     used to determine the padding. See [Using options.selectPadding][].
@@ -897,7 +1016,7 @@ server.listen(80);
   * ...: Any [`tls.createServer()`][] options can be provided. For
     servers, the identity options (`pfx` or `key`/`cert`) are usually required.
 * `onRequestHandler` {Function} See [Compatibility API][]
-* Returns `http2.Http2SecureServer`
+* Returns {Http2SecureServer}
 
 Returns a `tls.Server` instance that creates and manages `Http2Session`
 instances.
@@ -928,11 +1047,16 @@ server.listen(80);
 
 * `authority` {string|URL}
 * `options` {Object}
-  * `maxDefaultDynamicTableSize` {number} (TODO: Add detail)
-  * `maxReservedRemoteStreams` {number} (TODO: Add detail)
-  * `maxSendHeaderBlockLength` {number} (TODO: Add detail)
-  * `noHttpMessaging` {boolean} (TODO: Add detail)
-  * `noRecvClientMagic` {boolean} (TODO: Add detail)
+  * `maxDeflateDynamicTableSize` {number} Sets the maximum dynamic table size
+    for deflating header fields. Defaults to 4Kib.
+  * `maxReservedRemoteStreams` {number} Sets the maximum number of reserved push
+    streams the client will accept at any given time. Once the current number of
+    currently reserved push streams exceeds reaches this limit, new push streams
+    sent by the server will be automatically rejected.
+  * `maxSendHeaderBlockLength` {number} Sets the maximum allowed size for a
+    serialized, compressed block of headers. Attempts to send headers that
+    exceed this limit will result in a `'frameError'` event being emitted
+    and the stream being closed and destroyed.
   * `paddingStrategy` {number} Identifies the strategy used for determining the
      amount of padding to use for HEADERS and DATA frames. Defaults to
      `http2.constants.PADDING_STRATEGY_NONE`. Value may be one of:
@@ -944,14 +1068,17 @@ server.listen(80);
      * `http2.constants.PADDING_STRATEGY_CALLBACK` - Specifies that the user
        provided `options.selectPadding` callback is to be used to determine the
        amount of padding.
-  * `peerMaxConcurrentStreams` {number} (TODO: Add detail)
+  * `peerMaxConcurrentStreams` {number} Sets the maximum number of concurrent
+    streams for the remote peer as if a SETTINGS frame had been received. Will
+    be overridden if the remote peer sets its own value for
+    `maxConcurrentStreams`. Defaults to 100.
   * `selectPadding` {Function} When `options.paddingStrategy` is equal to
     `http2.constants.PADDING_STRATEGY_CALLBACK`, provides the callback function
     used to determine the padding. See [Using options.selectPadding][].
   * `settings` {[Settings Object][]} The initial settings to send to the
     remote peer upon connection.
 * `listener` {Function}
-* Returns `Http2Session`
+* Returns {Http2Session}
 
 Returns a HTTP/2 client `Http2Session` instance.
 

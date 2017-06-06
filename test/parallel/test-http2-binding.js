@@ -23,9 +23,9 @@ assert.strictEqual(settings.maxFrameSize, 16384);
 assert.strictEqual(binding.nghttp2ErrorString(-517),
                    'GOAWAY has already been sent');
 
-const check = Buffer.from([0x00, 0x01, 0x00, 0x00, 0x10, 0x00, 0x00, 0x04,
-                           0x00, 0x00, 0xff, 0xff, 0x00, 0x05, 0x00, 0x00,
-                           0x40, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01]);
+const check = Buffer.from([0x00, 0x01, 0x00, 0x00, 0x10, 0x00, 0x00, 0x05,
+                           0x00, 0x00, 0x40, 0x00, 0x00, 0x04, 0x00, 0x00,
+                           0xff, 0xff, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01]);
 const val = http2.getPackedSettings(http2.getDefaultSettings());
 assert.deepStrictEqual(val, check);
 
@@ -199,6 +199,7 @@ const expectedNGConstants = {
   NGHTTP2_ERR_STREAM_ID_NOT_AVAILABLE: -509,
   NGHTTP2_ERR_INVALID_ARGUMENT: -501,
   NGHTTP2_ERR_STREAM_CLOSED: -510,
+  NGHTTP2_ERR_FRAME_SIZE_ERROR: -522,
   NGHTTP2_FLAG_NONE: 0,
   NGHTTP2_FLAG_END_STREAM: 1,
   NGHTTP2_FLAG_END_HEADERS: 4,
