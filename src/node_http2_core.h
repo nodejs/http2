@@ -146,11 +146,14 @@ class Nghttp2Session {
   virtual void OnStreamClose(int32_t id, uint32_t code) {}
   virtual void OnDataChunk(Nghttp2Stream* stream,
                            nghttp2_data_chunk_t* chunk) {}
-  virtual void OnSettings() {}
+  virtual void OnSettings(bool ack) {}
   virtual void OnPriority(int32_t id,
                           int32_t parent,
                           int32_t weight,
                           int8_t exclusive) {}
+  virtual void OnFrameError(int32_t id,
+                            uint8_t type,
+                            int error_code) {}
   virtual ssize_t GetPadding(size_t frameLength,
                              size_t maxFrameLength) { return 0; }
   virtual void OnTrailers(Nghttp2Stream* stream,
@@ -185,6 +188,10 @@ class Nghttp2Session {
                               void* user_data);
   static int OnFrameReceive(nghttp2_session* session,
                             const nghttp2_frame* frame,
+                            void* user_data);
+  static int OnFrameNotSent(nghttp2_session* session,
+                            const nghttp2_frame* frame,
+                            int error_code,
                             void* user_data);
   static int OnStreamClose(nghttp2_session* session,
                            int32_t id,

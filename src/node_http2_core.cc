@@ -69,6 +69,7 @@ int Nghttp2Session::OnFrameReceive(nghttp2_session* session,
   Nghttp2Session* handle = static_cast<Nghttp2Session*>(user_data);
   DEBUG_HTTP2("Nghttp2Session %d: complete frame received: type: %d\n",
               handle->session_type_, frame->hd.type);
+  bool ack;
   switch (frame->hd.type) {
     case NGHTTP2_DATA:
       handle->HandleDataFrame(frame);
@@ -78,9 +79,8 @@ int Nghttp2Session::OnFrameReceive(nghttp2_session* session,
       handle->HandleHeadersFrame(frame);
       break;
     case NGHTTP2_SETTINGS:
-      // Ignore settings acknowledgements
-      if ((frame->hd.flags & NGHTTP2_FLAG_ACK) == 0)
-        handle->OnSettings();
+      ack = (frame->hd.flags & NGHTTP2_FLAG_ACK) == NGHTTP2_FLAG_ACK;
+      handle->OnSettings(ack);
       break;
     case NGHTTP2_PRIORITY:
       handle->HandlePriorityFrame(frame);
@@ -88,6 +88,17 @@ int Nghttp2Session::OnFrameReceive(nghttp2_session* session,
     default:
       break;
   }
+  return 0;
+}
+
+int Nghttp2Session::OnFrameNotSent(nghttp2_session* session,
+                                   const nghttp2_frame* frame,
+                                   int error_code,
+                                   void* user_data) {
+  Nghttp2Session* handle = static_cast<Nghttp2Session*>(user_data);
+  DEBUG_HTTP2("Nghttp2Session %d: frame type %d was not sent, code: %d\n",
+              handle->session_type_, frame->hd.type, error_code);
+  handle->OnFrameError(frame->hd.stream_id, frame->hd.type, error_code);
   return 0;
 }
 

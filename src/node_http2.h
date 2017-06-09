@@ -85,16 +85,6 @@ HTTP_KNOWN_HEADERS(V)
 HTTP_KNOWN_HEADER_MAX
 };
 
-inline const char* KnownHeaderName(enum http_known_headers c) {
-  switch (c) {
-#define V(name, value) case HTTP_HEADER_##name: return value;
-HTTP_KNOWN_HEADERS(V)
-#undef V
-    default:
-      return "UNKNOWN";
-  }
-}
-
 #define HTTP_STATUS_CODES(V)                                                  \
   V(CONTINUE, 100)                                                            \
   V(SWITCHING_PROTOCOLS, 101)                                                 \
@@ -236,43 +226,6 @@ const char* nghttp2_errname(int rv) {
   }
 }
 
-#define OPTIONS(obj, V)                                                       \
-  V(obj,                                                                      \
-    maxdeflatedynamictablesize_string,                                        \
-    SetMaxDeflateDynamicTableSize, Uint32)                                    \
-  V(obj,                                                                      \
-    maxreservedremotestreams_string,                                          \
-    SetMaxReservedRemoteStreams, Uint32)                                      \
-  V(obj,                                                                      \
-    maxsendheaderblocklength_string,                                          \
-    SetMaxSendHeaderBlockLength, Uint32)                                      \
-  V(obj,                                                                      \
-    peermaxconcurrentstreams_string,                                          \
-    SetPeerMaxConcurrentStreams, Uint32)                                      \
-  V(obj,                                                                      \
-    nohttpmessaging_string,                                                   \
-    SetNoHttpMessaging, Boolean)                                              \
-  V(obj,                                                                      \
-    norecvclientmagic_string,                                                 \
-    SetNoRecvClientMagic, Boolean)                                            \
-  V(obj,                                                                      \
-    paddingstrategy_string,                                                   \
-    SetPaddingStrategy, Uint32)
-
-#define SETTINGS(V)                                                          \
-  V(headertablesize_string, NGHTTP2_SETTINGS_HEADER_TABLE_SIZE,              \
-    Integer, NewFromUnsigned)                                                \
-  V(maxconcurrentstreams_string, NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS,    \
-    Integer, NewFromUnsigned)                                                \
-  V(initialwindowsize_string, NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE,          \
-    Integer, NewFromUnsigned)                                                \
-  V(maxframesize_string, NGHTTP2_SETTINGS_MAX_FRAME_SIZE,                    \
-    Integer, NewFromUnsigned)                                                \
-  V(maxheaderlistsize_string, NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE,         \
-    Integer, NewFromUnsigned)                                                \
-  V(enablepush_string, NGHTTP2_SETTINGS_ENABLE_PUSH,                         \
-    Boolean, New)
-
 #define DEFAULT_SETTINGS_HEADER_TABLE_SIZE 4096
 #define DEFAULT_SETTINGS_ENABLE_PUSH 1
 #define DEFAULT_SETTINGS_INITIAL_WINDOW_SIZE 65535
@@ -283,7 +236,7 @@ const char* nghttp2_errname(int rv) {
 
 class Http2Options {
  public:
-  Http2Options(Environment* env, Local<Value> options);
+  explicit Http2Options(Environment* env);
 
   ~Http2Options() {
     nghttp2_option_del(options_);
@@ -308,14 +261,6 @@ class Http2Options {
 
   void SetMaxSendHeaderBlockLength(size_t val) {
     nghttp2_option_set_max_send_header_block_length(options_, val);
-  }
-
-  void SetNoHttpMessaging(bool on = true) {
-    nghttp2_option_set_no_http_messaging(options_, on ? 1 : 0);
-  }
-
-  void SetNoRecvClientMagic(bool on = true) {
-    nghttp2_option_set_no_recv_client_magic(options_, on ? 1 : 0);
   }
 
   void SetPeerMaxConcurrentStreams(uint32_t val) {
@@ -343,13 +288,12 @@ class Http2Session : public AsyncWrap,
  public:
   Http2Session(Environment* env,
                Local<Object> wrap,
-               nghttp2_session_type type,
-               Local<Value> options) :
+               nghttp2_session_type type) :
                AsyncWrap(env, wrap, AsyncWrap::PROVIDER_HTTP2SESSION),
                StreamBase(env) {
     Wrap(object(), this);
 
-    Http2Options opts(env, options);
+    Http2Options opts(env);
 
     padding_strategy_ = opts.GetPaddingStrategy();
 
@@ -402,11 +346,12 @@ class Http2Session : public AsyncWrap,
   void OnStreamClose(int32_t id, uint32_t code) override;
   void Send(uv_buf_t* bufs, size_t total) override;
   void OnDataChunk(Nghttp2Stream* stream, nghttp2_data_chunk_t* chunk) override;
-  void OnSettings() override;
+  void OnSettings(bool ack) override;
   void OnPriority(int32_t stream,
                   int32_t parent,
                   int32_t weight,
                   int8_t exclusive) override;
+  void OnFrameError(int32_t id, uint8_t type, int error_code) override;
   void OnTrailers(Nghttp2Stream* stream,
                   MaybeStackBuffer<nghttp2_nv>* trailers) override;
   uv_buf_t* AllocateSend(size_t recommended) override;

@@ -45,5 +45,4 @@ server.on('listening', common.mustCall(() => {
   req.on('data', common.mustCall());
 
   client.on('close', common.mustCall());
-  req.end();
 }));
