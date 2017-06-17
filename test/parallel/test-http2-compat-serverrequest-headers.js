@@ -37,6 +37,14 @@ server.listen(0, common.mustCall(function() {
       assert.strictEqual(rawHeaders[position + 1], value);
     }
 
+    request.url = '/one';
+    assert.strictEqual(request.url, '/one');
+    assert.strictEqual(request.path, '/one');
+
+    request.path = '/two';
+    assert.strictEqual(request.url, '/two');
+    assert.strictEqual(request.path, '/two');
+
     response.stream.on('finish', common.mustCall(function() {
       server.close();
     }));
