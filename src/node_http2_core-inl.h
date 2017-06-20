@@ -121,6 +121,8 @@ inline void Nghttp2Session::HandlePriorityFrame(const nghttp2_frame* frame) {
 
 // Prompts nghttp2 to flush the queue of pending data frames
 inline void Nghttp2Session::SendPendingData() {
+  if (nghttp2_session_want_write(session_) == 0)
+    return;
   const uint8_t* data;
   size_t amount = 0;
   size_t offset = 0;
@@ -139,7 +141,8 @@ inline void Nghttp2Session::SendPendingData() {
         offset += remaining;
         src_offset = remaining;
         amount -= remaining;
-        Send(current, offset);
+        if (offset > 0)
+          Send(current, offset);
         offset = 0;
         current = AllocateSend(SEND_BUFFER_RECOMMENDED_SIZE);
         assert(current);
