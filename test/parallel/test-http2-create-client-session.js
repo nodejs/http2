@@ -7,7 +7,7 @@ const body =
   '<html><head></head><body><h1>this is some data</h2></body></html>';
 
 const server = h2.createServer();
-const count = 10;
+const count = 100;
 
 // we use the lower-level API here
 server.on('stream', common.mustCall(onStream, count));

@@ -130,7 +130,7 @@ int Nghttp2Session::OnDataChunkReceived(nghttp2_session *session,
               "%d, flags: %d\n", handle->session_type_, id, len, flags);
   Nghttp2Stream* stream = handle->FindStream(id);
   nghttp2_data_chunk_t* chunk = data_chunk_free_list.pop();
-  chunk->buf = uv_buf_init(Malloc(len), len);
+  chunk->buf = uv_buf_init(new char[len], len);
   memcpy(chunk->buf.base, data, len);
   if (stream->data_chunks_tail_ == nullptr) {
     stream->data_chunks_head_ =

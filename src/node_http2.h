@@ -11,6 +11,7 @@ namespace node {
 namespace http2 {
 
 using v8::Array;
+using v8::Context;
 using v8::EscapableHandleScope;
 using v8::Isolate;
 using v8::MaybeLocal;
@@ -163,17 +164,6 @@ enum padding_strategy_type {
   // Padding will be determined via JS callback
   PADDING_STRATEGY_CALLBACK
 };
-
-#define DATA_FLAGS(V)                                                         \
-  V(ENDSTREAM)                                                                \
-  V(ENDDATA)                                                                  \
-  V(NOENDSTREAM)
-
-#define V(name) FLAG_##name,
-enum http2_data_flags {
-  DATA_FLAGS(V)
-} http2_data_flags;
-#undef V
 
 #define NGHTTP2_ERROR_CODES(V)                                                 \
   V(NGHTTP2_ERR_INVALID_ARGUMENT)                                              \
@@ -354,7 +344,7 @@ class Http2Session : public AsyncWrap,
   void OnFrameError(int32_t id, uint8_t type, int error_code) override;
   void OnTrailers(Nghttp2Stream* stream,
                   MaybeStackBuffer<nghttp2_nv>* trailers) override;
-  uv_buf_t* AllocateSend(size_t recommended) override;
+  void AllocateSend(size_t recommended, uv_buf_t* buf) override;
 
   int DoWrite(WriteWrap* w, uv_buf_t* bufs, size_t count,
               uv_stream_t* send_handle) override;
@@ -505,42 +495,14 @@ class SessionShutdownWrap : public ReqWrap<uv_idle_t> {
   MaybeStackBuffer<uint8_t> opaqueData_;
 };
 
-class SessionSendBuffer : public WriteWrap {
- public:
-  static void OnDone(WriteWrap* req, int status) {
-    SessionSendBuffer* wrap =
-      static_cast<SessionSendBuffer*>(req);
-    wrap->cleanup();
-  }
-
-  SessionSendBuffer(Environment* env,
-                    Local<Object> obj,
-                    size_t size)
-      : WriteWrap(env, obj, nullptr, OnDone) {
-    buffer_ = uv_buf_init(new char[size], size);
-  }
-
-  ~SessionSendBuffer() {}
-
-  uv_buf_t buffer_;
-
- protected:
-  void cleanup() {
-    delete[] buffer_.base;
-  }
-
-  // This is just to avoid the compiler error. This should not be called
-  void operator delete(void* ptr) { UNREACHABLE(); }
-};
-
-class ExternalHeaderNameResource :
+class ExternalHeader :
     public String::ExternalOneByteStringResource {
  public:
-  explicit ExternalHeaderNameResource(nghttp2_rcbuf* buf)
+  explicit ExternalHeader(nghttp2_rcbuf* buf)
      : buf_(buf), vec_(nghttp2_rcbuf_get_buf(buf)) {
   }
 
-  ~ExternalHeaderNameResource() override {
+  ~ExternalHeader() override {
     nghttp2_rcbuf_decref(buf_);
     buf_ = nullptr;
   }
@@ -561,7 +523,7 @@ class ExternalHeaderNameResource :
       return scope.Escape(String::Empty(isolate));
     }
 
-    ExternalHeaderNameResource* h_str = new ExternalHeaderNameResource(buf);
+    ExternalHeader* h_str = new ExternalHeader(buf);
     MaybeLocal<String> str = String::NewExternalOneByte(isolate, h_str);
     isolate->AdjustAmountOfExternalAllocatedMemory(vec.len);
 
@@ -580,23 +542,24 @@ class ExternalHeaderNameResource :
 
 class Headers {
  public:
-  Headers(Isolate* isolate, Local<Array> headers) {
+  Headers(Isolate* isolate, Local<Context> context, Local<Array> headers) {
     headers_.AllocateSufficientStorage(headers->Length());
     Local<Value> item;
     Local<Array> header;
 
     for (size_t n = 0; n < headers->Length(); n++) {
-      item = headers->Get(n);
+      item = headers->Get(context, n).ToLocalChecked();
       CHECK(item->IsArray());
       header = item.As<Array>();
-      Local<Value> key = header->Get(0);
-      Local<Value> value = header->Get(1);
+      Local<Value> key = header->Get(context, 0).ToLocalChecked();
+      Local<Value> value = header->Get(context, 1).ToLocalChecked();
       CHECK(key->IsString());
       CHECK(value->IsString());
       size_t keylen = StringBytes::StorageSize(isolate, key, ASCII);
-      size_t valuelen = StringBytes::StorageSize(isolate, value, UTF8);
+      size_t valuelen = StringBytes::StorageSize(isolate, value, ASCII);
       headers_[n].flags = NGHTTP2_NV_FLAG_NONE;
-      if (header->Get(2)->BooleanValue())
+      Local<Value> flag = header->Get(context, 2).ToLocalChecked();
+      if (flag->BooleanValue(context).ToChecked())
         headers_[n].flags |= NGHTTP2_NV_FLAG_NO_INDEX;
       uint8_t* buf = Malloc<uint8_t>(keylen + valuelen);
       headers_[n].name = buf;
@@ -608,7 +571,7 @@ class Headers {
       headers_[n].valuelen =
           StringBytes::Write(isolate,
                             reinterpret_cast<char*>(headers_[n].value),
-                            valuelen, value, UTF8);
+                            valuelen, value, ASCII);
     }
   }
 
