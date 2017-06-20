@@ -821,7 +821,9 @@ void Http2Session::Send(uv_buf_t* buf, size_t length) {
   HandleScope scope(env()->isolate());
   SessionSendBuffer* req = ContainerOf(&SessionSendBuffer::buffer_, buf);
   uv_buf_t actual = uv_buf_init(buf->base, length);
-  if (stream_->DoWrite(req, &actual, 1, nullptr)) {
+  if (length == 0) {
+    req->OnDone(req, 0);
+  } else if (stream_->DoWrite(req, &actual, 1, nullptr)) {
     req->Dispose();
   }
 }
