@@ -66,9 +66,8 @@ inline void Nghttp2Stream::FlushDataChunks() {
     DEBUG_HTTP2("Nghttp2Stream %d: emitting data chunk\n", id_);
     nghttp2_data_chunk_t* item = data_chunks_head_;
     data_chunks_head_ = item->next;
+    // item will be passed to the Buffer instance and freed on gc
     session_->OnDataChunk(this, item);
-    delete[] item->buf.base;
-    data_chunk_free_list.push(item);
   }
   data_chunks_tail_ = nullptr;
 }
@@ -121,13 +120,15 @@ inline void Nghttp2Session::HandlePriorityFrame(const nghttp2_frame* frame) {
 
 // Prompts nghttp2 to flush the queue of pending data frames
 inline void Nghttp2Session::SendPendingData() {
+  if (nghttp2_session_want_write(session_) == 0)
+    return;
   const uint8_t* data;
   size_t amount = 0;
   size_t offset = 0;
   size_t src_offset = 0;
-  uv_buf_t* current = AllocateSend(SEND_BUFFER_RECOMMENDED_SIZE);
-  assert(current);
-  size_t remaining = current->len;
+  uv_buf_t current;
+  AllocateSend(SEND_BUFFER_RECOMMENDED_SIZE, &current);
+  size_t remaining = current.len;
   while ((amount = nghttp2_session_mem_send(session_, &data)) > 0) {
     DEBUG_HTTP2("Nghttp2Session %d: sending nghttp data: %d\n",
                 session_type_, amount);
@@ -135,25 +136,24 @@ inline void Nghttp2Session::SendPendingData() {
       if (amount > remaining) {
         // The amount copied does not fit within the remaining available
         // buffer, copy what we can tear it off and keep going.
-        memcpy(current->base + offset, data + src_offset, remaining);
+        memcpy(current.base + offset, data + src_offset, remaining);
         offset += remaining;
         src_offset = remaining;
         amount -= remaining;
-        Send(current, offset);
+        if (offset > 0)
+          Send(&current, offset);
         offset = 0;
-        current = AllocateSend(SEND_BUFFER_RECOMMENDED_SIZE);
-        assert(current);
-        remaining = current->len;
+        remaining = current.len;
         continue;
       }
-      memcpy(current->base + offset, data + src_offset, amount);
+      memcpy(current.base + offset, data + src_offset, amount);
       offset += amount;
       remaining -= amount;
       amount = 0;
       src_offset = 0;
     }
   }
-  Send(current, offset);
+  Send(&current, offset);
 }
 
 // Initialize the Nghttp2Session handle by creating and
@@ -340,7 +340,6 @@ inline void Nghttp2Stream::FreeHeaders() {
     DEBUG_HTTP2("Nghttp2Stream %d: freeing header item\n", id_);
     nghttp2_header_list* item = current_headers_head_;
     current_headers_head_ = item->next;
-    nghttp2_rcbuf_decref(item->value);
     header_free_list.push(item);
   }
   current_headers_tail_ = nullptr;
