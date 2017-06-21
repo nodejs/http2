@@ -340,7 +340,6 @@ inline void Nghttp2Stream::FreeHeaders() {
     DEBUG_HTTP2("Nghttp2Stream %d: freeing header item\n", id_);
     nghttp2_header_list* item = current_headers_head_;
     current_headers_head_ = item->next;
-    nghttp2_rcbuf_decref(item->value);
     header_free_list.push(item);
   }
   current_headers_tail_ = nullptr;
