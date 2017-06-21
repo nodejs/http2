@@ -354,7 +354,7 @@ class Http2Session : public AsyncWrap,
   void OnFrameError(int32_t id, uint8_t type, int error_code) override;
   void OnTrailers(Nghttp2Stream* stream,
                   MaybeStackBuffer<nghttp2_nv>* trailers) override;
-  uv_buf_t* AllocateSend(size_t recommended) override;
+  void AllocateSend(size_t recommended, uv_buf_t* buf) override;
 
   int DoWrite(WriteWrap* w, uv_buf_t* bufs, size_t count,
               uv_stream_t* send_handle) override;
@@ -503,34 +503,6 @@ class SessionShutdownWrap : public ReqWrap<uv_idle_t> {
   int32_t lastStreamID_;
   bool graceful_;
   MaybeStackBuffer<uint8_t> opaqueData_;
-};
-
-class SessionSendBuffer : public WriteWrap {
- public:
-  static void OnDone(WriteWrap* req, int status) {
-    SessionSendBuffer* wrap =
-      static_cast<SessionSendBuffer*>(req);
-    wrap->cleanup();
-  }
-
-  SessionSendBuffer(Environment* env,
-                    Local<Object> obj,
-                    size_t size)
-      : WriteWrap(env, obj, nullptr, OnDone) {
-    buffer_ = uv_buf_init(new char[size], size);
-  }
-
-  ~SessionSendBuffer() {}
-
-  uv_buf_t buffer_;
-
- protected:
-  void cleanup() {
-    delete[] buffer_.base;
-  }
-
-  // This is just to avoid the compiler error. This should not be called
-  void operator delete(void* ptr) { UNREACHABLE(); }
 };
 
 class ExternalHeaderNameResource :

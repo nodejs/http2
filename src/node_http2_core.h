@@ -159,7 +159,7 @@ class Nghttp2Session {
   virtual void OnTrailers(Nghttp2Stream* stream,
                           MaybeStackBuffer<nghttp2_nv>* nva) {}
   virtual void OnFreeSession() {}
-  virtual uv_buf_t* AllocateSend(size_t suggested_size) = 0;
+  virtual void AllocateSend(size_t suggested_size, uv_buf_t* buf) = 0;
 
   virtual bool HasGetPaddingCallback() { return false; }
 

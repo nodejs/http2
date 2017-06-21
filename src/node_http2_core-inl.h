@@ -127,9 +127,9 @@ inline void Nghttp2Session::SendPendingData() {
   size_t amount = 0;
   size_t offset = 0;
   size_t src_offset = 0;
-  uv_buf_t* current = AllocateSend(SEND_BUFFER_RECOMMENDED_SIZE);
-  assert(current);
-  size_t remaining = current->len;
+  uv_buf_t current;
+  AllocateSend(SEND_BUFFER_RECOMMENDED_SIZE, &current);
+  size_t remaining = current.len;
   while ((amount = nghttp2_session_mem_send(session_, &data)) > 0) {
     DEBUG_HTTP2("Nghttp2Session %d: sending nghttp data: %d\n",
                 session_type_, amount);
@@ -137,26 +137,24 @@ inline void Nghttp2Session::SendPendingData() {
       if (amount > remaining) {
         // The amount copied does not fit within the remaining available
         // buffer, copy what we can tear it off and keep going.
-        memcpy(current->base + offset, data + src_offset, remaining);
+        memcpy(current.base + offset, data + src_offset, remaining);
         offset += remaining;
         src_offset = remaining;
         amount -= remaining;
         if (offset > 0)
-          Send(current, offset);
+          Send(&current, offset);
         offset = 0;
-        current = AllocateSend(SEND_BUFFER_RECOMMENDED_SIZE);
-        assert(current);
-        remaining = current->len;
+        remaining = current.len;
         continue;
       }
-      memcpy(current->base + offset, data + src_offset, amount);
+      memcpy(current.base + offset, data + src_offset, amount);
       offset += amount;
       remaining -= amount;
       amount = 0;
       src_offset = 0;
     }
   }
-  Send(current, offset);
+  Send(&current, offset);
 }
 
 // Initialize the Nghttp2Session handle by creating and

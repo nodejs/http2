@@ -538,7 +538,7 @@ void Http2Session::SubmitRequest(const FunctionCallbackInfo<Value>& args) {
   bool exclusive = args[4]->BooleanValue();
 
   DEBUG_HTTP2("Http2Session: submitting request: headers: %d, end-stream: %d, "
-              "parent: %d, weight: %d, exclusive: %d", headers->Length(),
+              "parent: %d, weight: %d, exclusive: %d\n", headers->Length(),
               endStream, parent, weight, exclusive);
 
   nghttp2_priority_spec prispec;
@@ -801,28 +801,31 @@ int Http2Session::DoWrite(WriteWrap* req_wrap,
   return 0;
 }
 
-uv_buf_t* Http2Session::AllocateSend(size_t recommended) {
-  HandleScope scope(env()->isolate());
-  Local<Object> req_wrap_obj =
-    env()->write_wrap_constructor_function()
-      ->NewInstance(env()->context()).ToLocalChecked();
-  SessionSendBuffer* buf =
-      ::new SessionSendBuffer(env(),
-                              req_wrap_obj,
-                              recommended);
-  return &buf->buffer_;
+void Http2Session::AllocateSend(size_t recommended, uv_buf_t* buf) {
+  buf->base = stream_alloc();
+  buf->len = kAllocBufferSize;
 }
 
 void Http2Session::Send(uv_buf_t* buf, size_t length) {
-  // Do not attempt to write data if the stream is not alive or is closing
   if (stream_ == nullptr || !stream_->IsAlive() || stream_->IsClosing()) {
     return;
   }
   HandleScope scope(env()->isolate());
-  SessionSendBuffer* req = ContainerOf(&SessionSendBuffer::buffer_, buf);
+
+  auto AfterWrite = [](WriteWrap* req_wrap, int status) {
+    req_wrap->Dispose();
+  };
+  Local<Object> req_wrap_obj =
+      env()->write_wrap_constructor_function()
+          ->NewInstance(env()->context()).ToLocalChecked();
+  WriteWrap* write_req = WriteWrap::New(env(),
+                                        req_wrap_obj,
+                                        this,
+                                        AfterWrite);
+
   uv_buf_t actual = uv_buf_init(buf->base, length);
-  if (stream_->DoWrite(req, &actual, 1, nullptr)) {
-    req->Dispose();
+  if (stream_->DoWrite(write_req, &actual, 1, nullptr)) {
+    write_req->Dispose();
   }
 }
 
