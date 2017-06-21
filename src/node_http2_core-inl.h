@@ -66,9 +66,8 @@ inline void Nghttp2Stream::FlushDataChunks() {
     DEBUG_HTTP2("Nghttp2Stream %d: emitting data chunk\n", id_);
     nghttp2_data_chunk_t* item = data_chunks_head_;
     data_chunks_head_ = item->next;
+    // item will be passed to the Buffer instance and freed on gc
     session_->OnDataChunk(this, item);
-    delete[] item->buf.base;
-    data_chunk_free_list.push(item);
   }
   data_chunks_tail_ = nullptr;
 }

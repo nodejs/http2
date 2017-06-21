@@ -164,17 +164,6 @@ enum padding_strategy_type {
   PADDING_STRATEGY_CALLBACK
 };
 
-#define DATA_FLAGS(V)                                                         \
-  V(ENDSTREAM)                                                                \
-  V(ENDDATA)                                                                  \
-  V(NOENDSTREAM)
-
-#define V(name) FLAG_##name,
-enum http2_data_flags {
-  DATA_FLAGS(V)
-} http2_data_flags;
-#undef V
-
 #define NGHTTP2_ERROR_CODES(V)                                                 \
   V(NGHTTP2_ERR_INVALID_ARGUMENT)                                              \
   V(NGHTTP2_ERR_BUFFER_ERROR)                                                  \

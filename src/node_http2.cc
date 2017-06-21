@@ -834,10 +834,10 @@ void Http2Session::OnTrailers(Nghttp2Stream* stream,
   DEBUG_HTTP2("Http2Session: prompting for trailers on stream %d\n",
               stream->id());
   Local<Context> context = env()->context();
-  Context::Scope context_scope(context);
   Isolate* isolate = env()->isolate();
-
   HandleScope scope(isolate);
+  Context::Scope context_scope(context);
+
   if (object()->Has(context, env()->ontrailers_string()).FromJust()) {
     Local<Value> argv[1] = {
       Integer::New(isolate, stream->id())
@@ -866,9 +866,8 @@ void Http2Session::OnHeaders(Nghttp2Stream* stream,
                              nghttp2_headers_category cat,
                              uint8_t flags) {
   Local<Context> context = env()->context();
-  Context::Scope context_scope(context);
-
   Isolate* isolate = env()->isolate();
+  Context::Scope context_scope(context);
   HandleScope scope(isolate);
   Local<String> name_str;
   Local<String> value_str;
@@ -929,6 +928,7 @@ void Http2Session::OnStreamClose(int32_t id, uint32_t code) {
   Isolate* isolate = env()->isolate();
   Local<Context> context = env()->context();
   HandleScope scope(isolate);
+  Context::Scope context_scope(context);
   if (object()->Has(context, env()->onstreamclose_string()).FromJust()) {
     Local<Value> argv[2] = {
       Integer::New(isolate, id),
@@ -944,6 +944,12 @@ void Http2Session::OnStreamClose(int32_t id, uint32_t code) {
   }
 }
 
+void FreeDataChunk(char* data, void* hint) {
+  nghttp2_data_chunk_t* item = reinterpret_cast<nghttp2_data_chunk_t*>(hint);
+  delete[] data;
+  data_chunk_free_list.push(item);
+}
+
 void Http2Session::OnDataChunk(
     Nghttp2Stream* stream,
     nghttp2_data_chunk_t* chunk) {
@@ -954,9 +960,11 @@ void Http2Session::OnDataChunk(
   obj->Set(context,
            env()->id_string(),
            Integer::New(isolate, stream->id())).FromJust();
-  Local<Object> buf = Buffer::Copy(isolate,
-                                   chunk->buf.base,
-                                   chunk->buf.len).ToLocalChecked();
+  Local<Object> buf = Buffer::New(isolate,
+                                  chunk->buf.base,
+                                  chunk->buf.len,
+                                  FreeDataChunk,
+                                  chunk).ToLocalChecked();
   EmitData(chunk->buf.len, buf, obj);
 }
 
@@ -964,6 +972,7 @@ void Http2Session::OnSettings(bool ack) {
   Local<Context> context = env()->context();
   Isolate* isolate = env()->isolate();
   HandleScope scope(isolate);
+  Context::Scope context_scope(context);
   if (object()->Has(context, env()->onsettings_string()).FromJust()) {
     v8::TryCatch try_catch(isolate);
     Local<Value> argv[1] = { Boolean::New(isolate, ack) };
@@ -980,6 +989,7 @@ void Http2Session::OnFrameError(int32_t id, uint8_t type, int error_code) {
   Local<Context> context = env()->context();
   Isolate* isolate = env()->isolate();
   HandleScope scope(isolate);
+  Context::Scope context_scope(context);
   if (object()->Has(context, env()->onframeerror_string()).FromJust()) {
     v8::TryCatch try_catch(isolate);
     Local<Value> argv[3] = {
@@ -1003,6 +1013,7 @@ void Http2Session::OnPriority(int32_t stream,
   Local<Context> context = env()->context();
   Isolate* isolate = env()->isolate();
   HandleScope scope(isolate);
+  Context::Scope context_scope(context);
   if (object()->Has(context, env()->onpriority_string()).FromJust()) {
     v8::TryCatch try_catch(isolate);
     Local<Value> argv[4] = {
