@@ -196,6 +196,7 @@ void PackSettings(const FunctionCallbackInfo<Value>& args) {
   HandleScope scope(env->isolate());
 
   std::vector<nghttp2_settings_entry> entries;
+  entries.reserve(6);
 
   uint32_t* const buffer = env->http2_settings_buffer();
   uint32_t flags = buffer[IDX_SETTINGS_COUNT];
@@ -450,6 +451,7 @@ void Http2Session::SubmitSettings(const FunctionCallbackInfo<Value>& args) {
   uint32_t flags = buffer[IDX_SETTINGS_COUNT];
 
   std::vector<nghttp2_settings_entry> entries;
+  entries.reserve(6);
 
   if ((flags & (1 << IDX_SETTINGS_HEADER_TABLE_SIZE)) ==
       (1 << IDX_SETTINGS_HEADER_TABLE_SIZE)) {
@@ -499,8 +501,13 @@ void Http2Session::SubmitSettings(const FunctionCallbackInfo<Value>& args) {
                        buffer[IDX_SETTINGS_ENABLE_PUSH]});
   }
 
-  args.GetReturnValue().Set(
-      session->Nghttp2Session::SubmitSettings(&entries[0], entries.size()));
+  if (entries.size() > 0) {
+    args.GetReturnValue().Set(
+        session->Nghttp2Session::SubmitSettings(&entries[0], entries.size()));
+  } else {
+    args.GetReturnValue().Set(
+        session->Nghttp2Session::SubmitSettings(nullptr, 0));
+  }
 }
 
 void Http2Session::SubmitRstStream(const FunctionCallbackInfo<Value>& args) {
@@ -1071,12 +1078,15 @@ void Http2Session::OnStreamReadImpl(ssize_t nread,
                               session->prev_read_cb_.ctx);
     return;
   }
-  uv_buf_t buf[] { uv_buf_init((*bufs).base, nread) };
-  ssize_t ret = session->Write(buf, 1);
-  if (ret < 0) {
-    DEBUG_HTTP2("Http2Session: fatal error receiving data: %d\n", ret);
-    nghttp2_session_terminate_session(session->session(),
-                                      NGHTTP2_PROTOCOL_ERROR);
+  if (nread > 0) {
+    // Only pass data on if nread > 0
+    uv_buf_t buf[] { uv_buf_init((*bufs).base, nread) };
+    ssize_t ret = session->Write(buf, 1);
+    if (ret < 0) {
+      DEBUG_HTTP2("Http2Session: fatal error receiving data: %d\n", ret);
+      nghttp2_session_terminate_session(session->session(),
+                                        NGHTTP2_PROTOCOL_ERROR);
+    }
   }
 }
 

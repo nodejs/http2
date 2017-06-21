@@ -7,11 +7,6 @@ const NGHTTP2_INTERNAL_ERROR = h2.constants.NGHTTP2_INTERNAL_ERROR;
 
 const server = h2.createServer();
 
-// we use the lower-level API here
-server.on('stream', common.mustCall((stream) => {
-  stream.on('aborted', common.mustCall());
-}));
-
 server.listen(0);
 
 server.on('listening', common.mustCall(() => {
