@@ -120,40 +120,25 @@ inline void Nghttp2Session::HandlePriorityFrame(const nghttp2_frame* frame) {
 
 // Prompts nghttp2 to flush the queue of pending data frames
 inline void Nghttp2Session::SendPendingData() {
-  if (nghttp2_session_want_write(session_) == 0)
-    return;
   const uint8_t* data;
-  size_t amount = 0;
-  size_t offset = 0;
-  size_t src_offset = 0;
-  uv_buf_t current;
-  AllocateSend(SEND_BUFFER_RECOMMENDED_SIZE, &current);
-  size_t remaining = current.len;
-  while ((amount = nghttp2_session_mem_send(session_, &data)) > 0) {
-    DEBUG_HTTP2("Nghttp2Session %d: sending nghttp data: %d\n",
-                session_type_, amount);
-    while (amount > 0) {
-      if (amount > remaining) {
-        // The amount copied does not fit within the remaining available
-        // buffer, copy what we can tear it off and keep going.
-        memcpy(current.base + offset, data + src_offset, remaining);
-        offset += remaining;
-        src_offset = remaining;
-        amount -= remaining;
-        if (offset > 0)
-          Send(&current, offset);
-        offset = 0;
-        remaining = current.len;
-        continue;
-      }
-      memcpy(current.base + offset, data + src_offset, amount);
-      offset += amount;
-      remaining -= amount;
-      amount = 0;
-      src_offset = 0;
+  ssize_t len = 0;
+  ssize_t ncopy = 0;
+  uv_buf_t buf;
+  AllocateSend(SEND_BUFFER_RECOMMENDED_SIZE, &buf);
+  while (nghttp2_session_want_write(session_)) {
+    len = nghttp2_session_mem_send(session_, &data);
+    CHECK_GE(len, 0);  // If this is less than zero, we're out of memory
+    // While len is greater than 0, send a chunk
+    while (len > 0) {
+      ncopy = len;
+      if (ncopy > buf.len)
+        ncopy = buf.len;
+      memcpy(buf.base, data, ncopy);
+      Send(&buf, ncopy);
+      len -= ncopy;
+      CHECK_GE(len, 0);  // This should never be less than zero
     }
   }
-  Send(&current, offset);
 }
 
 // Initialize the Nghttp2Session handle by creating and
@@ -203,7 +188,7 @@ inline int Nghttp2Session::Init(uv_loop_t* loop,
     Nghttp2Session* session = ContainerOf(&Nghttp2Session::prep_, t);
     session->SendPendingData();
   });
-  uv_unref(reinterpret_cast<uv_handle_t*>(&prep_));
+//  uv_unref(reinterpret_cast<uv_handle_t*>(&prep_));
   return ret;
 }
 
