@@ -41,7 +41,7 @@ const http2 = require('http2');
 
 const client = http2.connect('http://localhost:80');
 
-const req = client.request({ ':path': '/'});
+const req = client.request({ ':path': '/' });
 
 req.on('response', (headers) => {
   console.log(headers[':status']);
@@ -662,7 +662,7 @@ value will be `undefined` after the `Http2Stream` instance is destroyed.
 const http2 = require('http2');
 const client = http2.connect('http://example.org:8000');
 
-const req = client.request({':path': '/'});
+const req = client.request({ ':path': '/' });
 
 // Cancel the stream if there's no activity after 5 seconds
 req.setTimeout(5000, () => req.rstStreamWithCancel());
@@ -772,9 +772,9 @@ instance created for the push stream.
 const http2 = require('http2');
 const server = http2.createServer();
 server.on('stream', (stream) => {
-  stream.respond({':status': 200});
-  stream.pushStream({':path': '/'}, (pushStream) => {
-    pushStream.respond({':status': 200});
+  stream.respond({ ':status': 200 });
+  stream.pushStream({ ':path': '/' }, (pushStream) => {
+    pushStream.respond({ ':status': 200 });
     pushStream.end('some pushed data');
   });
   stream.end('some data');
@@ -791,7 +791,7 @@ server.on('stream', (stream) => {
 const http2 = require('http2');
 const server = http2.createServer();
 server.on('stream', (stream) => {
-  stream.respond({':status': 200});
+  stream.respond({ ':status': 200 });
   stream.end('some data');
 });
 ```
