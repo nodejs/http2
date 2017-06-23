@@ -1,3 +1,4 @@
+// Flags: --expose-http2
 'use strict';
 
 // Tests http2.connect()
