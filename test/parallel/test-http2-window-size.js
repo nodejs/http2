@@ -80,7 +80,8 @@ const bufferValueRange = [0, 1, 2, 3];
 const buffersList = [
   bufferValueRange.map((a) => Buffer.alloc(1 << 4, a)),
   bufferValueRange.map((a) => Buffer.alloc((1 << 8) - 1, a)),
-  bufferValueRange.map((a) => Buffer.alloc(1 << 17, a))
+// Specifying too large of a value causes timeouts on some platforms
+//  bufferValueRange.map((a) => Buffer.alloc(1 << 17, a))
 ];
 const initialWindowSizeList = [
   1 << 4,

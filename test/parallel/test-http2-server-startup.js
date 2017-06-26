@@ -44,10 +44,8 @@ assert.doesNotThrow(() => {
 // Test the plaintext server socket timeout
 {
   let client;
-  let timer;
-  const server = http2.createServer({}, common.noop);
+  const server = http2.createServer();
   server.on('timeout', common.mustCall(() => {
-    clearTimeout(timer);
     server.close();
     if (client)
       client.end();
@@ -57,17 +55,13 @@ assert.doesNotThrow(() => {
     const port = server.address().port;
     client = net.connect(port, common.mustCall());
   }));
-  timer = setTimeout(() => assert.fail('server timeout failed'),
-                     common.platformTimeout(1100));
 }
 
 // Test the secure server socket timeout
 {
   let client;
-  let timer;
-  const server = http2.createSecureServer(options, common.noop);
+  const server = http2.createSecureServer(options);
   server.on('timeout', common.mustCall(() => {
-    clearTimeout(timer);
     server.close();
     if (client)
       client.end();
@@ -81,6 +75,4 @@ assert.doesNotThrow(() => {
       ALPNProtocols: ['h2']
     }, common.mustCall());
   }));
-  timer = setTimeout(() => assert.fail('server timeout failed'),
-                     common.platformTimeout(1100));
 }
