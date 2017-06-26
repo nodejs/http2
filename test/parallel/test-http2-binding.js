@@ -11,9 +11,7 @@ const binding = process.binding('http2');
 const http2 = require('http2');
 
 assert(binding.Http2Session);
-assert(binding.SessionShutdownWrap);
 assert.strictEqual(typeof binding.Http2Session, 'function');
-assert.strictEqual(typeof binding.SessionShutdownWrap, 'function');
 
 const settings = http2.getDefaultSettings();
 assert.strictEqual(settings.headerTableSize, 4096);

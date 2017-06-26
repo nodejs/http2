@@ -37,7 +37,7 @@ const closeServer = common.mustCall(() => {
 server.on('listening', common.mustCall(() => {
   const client = h2.connect(`http://localhost:${server.address().port}`,
                             { maxPendingAck: maxPendingAck + 1 });
-  let remaining = maxPendingAck;
+  let remaining = maxPendingAck + 1;
 
   client.on('close', closeServer);
   client.on('localSettings', common.mustCall(() => {

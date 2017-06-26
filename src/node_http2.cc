@@ -666,84 +666,42 @@ void Http2Session::StreamReadStop(const FunctionCallbackInfo<Value>& args) {
   stream->ReadStop();
 }
 
-
-static void DoSessionShutdown(SessionShutdownWrap* req) {
-  int status;
-  if (req->graceful()) {
-    DEBUG_HTTP2("Http2Session: initiating graceful session shutdown. "
-                "last-stream-id: %d, code: %d\n",
-                req->lastStreamID(), req->errorCode());
-    status = nghttp2_session_terminate_session2(req->handle()->session(),
-                                                req->lastStreamID(),
-                                                req->errorCode());
-  } else {
-    DEBUG_HTTP2("Http2Session: initiating immediate shutdown. "
-                "last-stream-id: %d, code: %d, opaque-data: %d\n",
-                req->lastStreamID(), req->errorCode(), req->opaqueDataLength());
-    status = nghttp2_submit_goaway(req->handle()->session(),
-                                   NGHTTP2_FLAG_NONE,
-                                   req->lastStreamID(),
-                                   req->errorCode(),
-                                   req->opaqueData(),
-                                   req->opaqueDataLength());
-  }
-  req->Done(status);
+void Http2Session::SendShutdownNotice(
+    const FunctionCallbackInfo<Value>& args) {
+  Http2Session* session;
+  ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
+  session->SubmitShutdownNotice();
 }
 
-static void AfterSessionShutdown(SessionShutdownWrap* req, int status) {
-  Environment* env = req->env();
-  CHECK_EQ(req->persistent().IsEmpty(), false);
-
-  HandleScope handle_scope(env->isolate());
-  Context::Scope context_scope(env->context());
-
-  Local<Object> req_wrap_obj = req->object();
-  Local<Value> argv[2] = {
-    Integer::New(env->isolate(), status),
-    req_wrap_obj
-  };
-
-  if (req_wrap_obj->Has(env->context(), env->oncomplete_string()).FromJust())
-    req->MakeCallback(env->oncomplete_string(), arraysize(argv), argv);
-
-  delete req;
-}
-
-void Http2Session::SubmitShutdown(const FunctionCallbackInfo<Value>& args) {
+void Http2Session::SubmitGoaway(const FunctionCallbackInfo<Value>& args) {
   Http2Session* session;
   Environment* env = Environment::GetCurrent(args);
   Local<Context> context = env->context();
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
 
-  CHECK(args[0]->IsObject());
-  Local<Object> req_wrap_obj = args[0].As<Object>();
-  bool graceful = args[1]->BooleanValue(context).ToChecked();
-  uint32_t errorCode = args[2]->Uint32Value(context).ToChecked();
-  int32_t lastStreamID = args[3]->Int32Value(context).ToChecked();
-  Local<Value> opaqueData = args[4];
+  uint32_t errorCode = args[0]->Uint32Value(context).ToChecked();
+  int32_t lastStreamID = args[1]->Int32Value(context).ToChecked();
+  Local<Value> opaqueData = args[2];
 
-  if (opaqueData->BooleanValue(context).ToChecked())
+  uint8_t* data = NULL;
+  size_t length = 0;
+
+  if (opaqueData->BooleanValue(context).ToChecked()) {
     THROW_AND_RETURN_UNLESS_BUFFER(env, opaqueData);
-
-  SessionShutdownWrap* req_wrap =
-      new SessionShutdownWrap(env, req_wrap_obj, session, errorCode,
-                              lastStreamID, opaqueData, graceful,
-                              AfterSessionShutdown);
-
-  req_wrap->Dispatched();
-  if (graceful) {
-    session->SubmitShutdownNotice();
-    auto AfterShutdownIdle = [](uv_idle_t* idle) {
-      uv_idle_stop(idle);
-      SessionShutdownWrap* wrap =
-        SessionShutdownWrap::from_req(idle);
-      DoSessionShutdown(wrap);
-    };
-    uv_idle_init(env->event_loop(), req_wrap->req());
-    uv_idle_start(req_wrap->req(), AfterShutdownIdle);
-  } else {
-    DoSessionShutdown(req_wrap);
+    SPREAD_BUFFER_ARG(opaqueData, buf);
+    data = reinterpret_cast<uint8_t*>(buf_data);
+    length = buf_length;
   }
+
+  DEBUG_HTTP2("Http2Session: initiating immediate shutdown. "
+              "last-stream-id: %d, code: %d, opaque-data: %d\n",
+              req->lastStreamID(), req->errorCode(), req->opaqueDataLength());
+  int status = nghttp2_submit_goaway(session->session(),
+                                     NGHTTP2_FLAG_NONE,
+                                     lastStreamID,
+                                     errorCode,
+                                     data, length);
+  args.GetReturnValue().Set(status);
 }
 
 void Http2Session::DestroyStream(const FunctionCallbackInfo<Value>& args) {
@@ -1204,16 +1162,6 @@ void Initialize(Local<Object> target,
     String::NewFromUtf8(isolate, "Http2Session",
                         v8::NewStringType::kInternalized).ToLocalChecked();
 
-  Local<String> http2SessionShutdownWrapClassName =
-      FIXED_ONE_BYTE_STRING(env->isolate(), "SessionShutdownWrap");
-  Local<FunctionTemplate> sw =
-      FunctionTemplate::New(env->isolate(), SessionShutdownWrap::New);
-  sw->InstanceTemplate()->SetInternalFieldCount(1);
-  sw->SetClassName(http2SessionShutdownWrapClassName);
-  target->Set(context,
-              http2SessionShutdownWrapClassName,
-              sw->GetFunction()).FromJust();
-
   Local<FunctionTemplate> session =
       env->NewFunctionTemplate(Http2Session::New);
   session->SetClassName(http2SessionClassName);
@@ -1224,8 +1172,10 @@ void Initialize(Local<Object> target,
                       Http2Session::Destroy);
   env->SetProtoMethod(session, "sendHeaders",
                       Http2Session::SendHeaders);
-  env->SetProtoMethod(session, "submitShutdown",
-                      Http2Session::SubmitShutdown);
+  env->SetProtoMethod(session, "submitShutdownNotice",
+                      Http2Session::SendShutdownNotice);
+  env->SetProtoMethod(session, "submitGoaway",
+                      Http2Session::SubmitGoaway);
   env->SetProtoMethod(session, "submitSettings",
                       Http2Session::SubmitSettings);
   env->SetProtoMethod(session, "submitPushPromise",
