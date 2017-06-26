@@ -398,7 +398,8 @@ class Http2Session : public AsyncWrap,
   static void StreamReadStart(const FunctionCallbackInfo<Value>& args);
   static void StreamReadStop(const FunctionCallbackInfo<Value>& args);
   static void SetNextStreamID(const FunctionCallbackInfo<Value>& args);
-  static void SubmitShutdown(const FunctionCallbackInfo<Value>& args);
+  static void SendShutdownNotice(const FunctionCallbackInfo<Value>& args);
+  static void SubmitGoaway(const FunctionCallbackInfo<Value>& args);
   static void DestroyStream(const FunctionCallbackInfo<Value>& args);
 
   template <get_setting fn>
@@ -418,81 +419,6 @@ class Http2Session : public AsyncWrap,
   StreamResource::Callback<StreamResource::ReadCb> prev_read_cb_;
   padding_strategy_type padding_strategy_ = PADDING_STRATEGY_NONE;
   MaybeStackBuffer<char, kAllocBufferSize> stream_buf_;
-};
-
-class SessionShutdownWrap : public ReqWrap<uv_idle_t> {
- public:
-  typedef void (*DoneCb)(SessionShutdownWrap* req, int status);
-
-  inline void Done(int status) {
-    cb_(this, status);
-  }
-
-  SessionShutdownWrap(Environment* env,
-                      v8::Local<v8::Object> req_wrap_obj,
-                      Nghttp2Session* handle,
-                      uint32_t errorCode,
-                      int32_t lastStreamID,
-                      Local<Value> opaqueData,
-                      bool graceful,
-                      DoneCb cb)
-      : ReqWrap(env, req_wrap_obj,
-                AsyncWrap::PROVIDER_HTTP2SESSIONSHUTDOWNWRAP),
-        handle_(handle),
-        cb_(cb),
-        errorCode_(errorCode),
-        lastStreamID_(lastStreamID),
-        graceful_(graceful) {
-    Wrap(req_wrap_obj, this);
-    if (opaqueData->BooleanValue()) {
-      SPREAD_BUFFER_ARG(opaqueData, data);
-      if (graceful) {
-        opaqueData_.AllocateSufficientStorage(data_length);
-        memcpy(*opaqueData_, data_data, data_length);
-      }
-    }
-  }
-  ~SessionShutdownWrap() {}
-
-  static void New(const v8::FunctionCallbackInfo<v8::Value>& args) {
-    CHECK(args.IsConstructCall());
-  }
-  static SessionShutdownWrap* from_req(uv_idle_t* req) {
-    return ContainerOf(&SessionShutdownWrap::req_, req);
-  }
-  size_t self_size() const override { return sizeof(*this); }
-
-  uint32_t errorCode() const {
-    return errorCode_;
-  }
-
-  int32_t lastStreamID() const {
-    return lastStreamID_ > 0 ? lastStreamID_ : 0;
-  }
-
-  const uint8_t* opaqueData() const {
-    return *opaqueData_;
-  }
-
-  bool graceful() const {
-    return graceful_;
-  }
-
-  size_t opaqueDataLength() const {
-    return opaqueData_.length();
-  }
-
-  Nghttp2Session* handle() const {
-    return handle_;
-  }
-
- private:
-  Nghttp2Session* handle_;
-  DoneCb cb_;
-  uint32_t errorCode_;
-  int32_t lastStreamID_;
-  bool graceful_;
-  MaybeStackBuffer<uint8_t> opaqueData_;
 };
 
 class ExternalHeader :

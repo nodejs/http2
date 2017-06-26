@@ -4,8 +4,7 @@
 const {
   fixturesDir,
   mustCall,
-  mustNotCall,
-  platformTimeout
+  mustNotCall
 } = require('../common');
 const { strictEqual } = require('assert');
 const { join } = require('path');
@@ -17,17 +16,6 @@ const { parse } = require('url');
 const { connect: tls } = require('tls');
 
 const countdown = (count, done) => () => --count === 0 && done();
-
-function expire(callback, ttl) {
-  const timeout = setTimeout(
-    mustNotCall('Callback expired'),
-    platformTimeout(ttl)
-  );
-  return function expire() {
-    clearTimeout(timeout);
-    return callback();
-  };
-}
 
 function loadKey(keyname) {
   return readFileSync(join(fixturesDir, 'keys', keyname));
@@ -153,6 +141,6 @@ function onSession(session) {
 
     // Incompatible ALPN TLS client
     tls(Object.assign({ port, ALPNProtocols: ['fake'] }, clientOptions))
-      .on('error', expire(mustCall(cleanup), 200));
+      .on('error', mustCall(cleanup));
   }));
 }
