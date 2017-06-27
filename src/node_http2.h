@@ -16,6 +16,47 @@ using v8::EscapableHandleScope;
 using v8::Isolate;
 using v8::MaybeLocal;
 
+#define HTTP_KNOWN_METHODS(V)                                                 \
+  V(ACL, "ACL")                                                               \
+  V(BASELINE_CONTROL, "BASELINE-CONTROL")                                     \
+  V(BIND, "BIND")                                                             \
+  V(CHECKIN, "CHECKIN")                                                       \
+  V(CHECKOUT, "CHECKOUT")                                                     \
+  V(CONNECT, "CONNECT")                                                       \
+  V(COPY, "COPY")                                                             \
+  V(DELETE, "DELETE")                                                         \
+  V(GET, "GET")                                                               \
+  V(HEAD, "HEAD")                                                             \
+  V(LABEL, "LABEL")                                                           \
+  V(LINK, "LINK")                                                             \
+  V(LOCK, "LOCK")                                                             \
+  V(MERGE, "MERGE")                                                           \
+  V(MKACTIVITY, "MKACTIVITY")                                                 \
+  V(MKCALENDAR, "MKCALENDAR")                                                 \
+  V(MKCOL, "MKCOL")                                                           \
+  V(MKREDIRECTREF, "MKREDIRECTREF")                                           \
+  V(MKWORKSPACE, "MKWORKSPACE")                                               \
+  V(MOVE, "MOVE")                                                             \
+  V(OPTIONS, "OPTIONS")                                                       \
+  V(ORDERPATCH, "ORDERPATCH")                                                 \
+  V(PATCH, "PATCH")                                                           \
+  V(POST, "POST")                                                             \
+  V(PRI, "PRI")                                                               \
+  V(PROPFIND, "PROPFIND")                                                     \
+  V(PROPPATCH, "PROPPATCH")                                                   \
+  V(PUT, "PUT")                                                               \
+  V(REBIND, "REBIND")                                                         \
+  V(REPORT, "REPORT")                                                         \
+  V(SEARCH, "SEARCH")                                                         \
+  V(TRACE, "TRACE")                                                           \
+  V(UNBIND, "UNBIND")                                                         \
+  V(UNCHECKOUT, "UNCHECKOUT")                                                 \
+  V(UNLINK, "UNLINK")                                                         \
+  V(UNLOCK, "UNLOCK")                                                         \
+  V(UPDATE, "UPDATE")                                                         \
+  V(UPDATEREDIRECTREF, "UPDATEREDIRECTREF")                                   \
+  V(VERSION_CONTROL, "VERSION-CONTROL")
+
 #define HTTP_KNOWN_HEADERS(V)                                                 \
   V(STATUS, ":status")                                                        \
   V(METHOD, ":method")                                                        \

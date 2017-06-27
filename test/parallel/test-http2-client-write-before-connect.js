@@ -7,6 +7,12 @@ const h2 = require('http2');
 
 const server = h2.createServer();
 
+const {
+  HTTP2_HEADER_PATH,
+  HTTP2_HEADER_METHOD,
+  HTTP2_METHOD_POST
+} = h2.constants;
+
 // we use the lower-level API here
 server.on('stream', common.mustCall(onStream));
 
@@ -30,7 +36,9 @@ server.on('listening', common.mustCall(() => {
 
   const client = h2.connect(`http://localhost:${server.address().port}`);
 
-  const req = client.request({ ':path': '/' });
+  const req = client.request({
+    [HTTP2_HEADER_PATH]: '/',
+    [HTTP2_HEADER_METHOD]: HTTP2_METHOD_POST });
   req.write('some data ');
   req.write('more data');
 

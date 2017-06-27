@@ -17,7 +17,7 @@ function onStream(stream, headers, flags) {
   assert.strictEqual(headers[':scheme'], 'http');
   assert.ok(headers[':authority']);
   assert.strictEqual(headers[':method'], 'GET');
-  assert.strictEqual(flags, 4);
+  assert.strictEqual(flags, 5);
   stream.respond({
     'content-type': 'text/html',
     ':status': 200
