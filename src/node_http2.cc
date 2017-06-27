@@ -1300,6 +1300,11 @@ void Initialize(Local<Object> target,
 HTTP_KNOWN_HEADERS(STRING_CONSTANT)
 #undef STRING_CONSTANT
 
+#define STRING_CONSTANT(NAME, VALUE)                                          \
+  NODE_DEFINE_STRING_CONSTANT(constants, "HTTP2_METHOD_" # NAME, VALUE);
+HTTP_KNOWN_METHODS(STRING_CONSTANT)
+#undef STRING_CONSTANT
+
 #define V(name, _) NODE_DEFINE_CONSTANT(constants, HTTP_STATUS_##name);
 HTTP_STATUS_CODES(V)
 #undef V

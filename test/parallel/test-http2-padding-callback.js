@@ -13,9 +13,13 @@ function selectPadding(frameLen, max) {
   return max;
 }
 
+// selectPadding will be called three times:
+// 1. For the client request headers frame
+// 2. For the server response headers frame
+// 3. For the server response data frame
 const options = {
   paddingStrategy: PADDING_STRATEGY_CALLBACK,
-  selectPadding: common.mustCall(selectPadding, 4)
+  selectPadding: common.mustCall(selectPadding, 3)
 };
 
 const server = h2.createServer(options);

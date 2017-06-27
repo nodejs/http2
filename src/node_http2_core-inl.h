@@ -61,6 +61,7 @@ inline Nghttp2Stream* Nghttp2Session::FindStream(int32_t id) {
   }
 }
 
+// Flushes any received queued chunks of data out to the JS layer
 inline void Nghttp2Stream::FlushDataChunks() {
   while (data_chunks_head_ != nullptr) {
     DEBUG_HTTP2("Nghttp2Stream %d: emitting data chunk\n", id_);
@@ -118,15 +119,15 @@ inline void Nghttp2Session::HandlePriorityFrame(const nghttp2_frame* frame) {
   }
 }
 
-// Notifies the JS layer that a GOAWAY opaque data has been received
+// Notifies the JS layer that a GOAWAY frame has been received
 inline void Nghttp2Session::HandleGoawayFrame(const nghttp2_frame* frame) {
   nghttp2_goaway goaway_frame = frame->goaway;
   DEBUG_HTTP2("Nghttp2Session %d: handling goaway frame\n", session_type_);
 
   OnGoAway(goaway_frame.last_stream_id,
-            goaway_frame.error_code,
-            goaway_frame.opaque_data,
-            goaway_frame.opaque_data_len);
+           goaway_frame.error_code,
+           goaway_frame.opaque_data,
+           goaway_frame.opaque_data_len);
 }
 
 // Prompts nghttp2 to flush the queue of pending data frames
@@ -194,6 +195,9 @@ inline int Nghttp2Session::Init(uv_loop_t* loop,
     nghttp2_option_del(opts);
   }
 
+  // For every node::Http2Session instance, there is a uv_prep_t handle
+  // whose callback is triggered on every tick of the event loop. When
+  // run, nghttp2 is prompted to send any queued data it may have stored.
   uv_prepare_init(loop_, &prep_);
   uv_prepare_start(&prep_, [](uv_prepare_t* t) {
     Nghttp2Session* session = ContainerOf(&Nghttp2Session::prep_, t);
