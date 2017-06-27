@@ -5,6 +5,13 @@ const common = require('../common');
 const assert = require('assert');
 const http2 = require('http2');
 
+const {
+  HTTP2_HEADER_METHOD,
+  HTTP2_HEADER_PATH,
+  HTTP2_METHOD_POST
+} = http2.constants;
+
+
 function checkRstCode(rstMethod, expectRstCode) {
   const server = http2.createServer();
   server.on('stream', (stream, headers, flags) => {
@@ -23,7 +30,10 @@ function checkRstCode(rstMethod, expectRstCode) {
     const port = server.address().port;
     const client = http2.connect(`http://localhost:${port}`);
 
-    const headers = { ':path': '/' };
+    const headers = {
+      [HTTP2_HEADER_PATH]: '/',
+      [HTTP2_HEADER_METHOD]: HTTP2_METHOD_POST
+    };
     const req = client.request(headers);
 
     req.setEncoding('utf8');

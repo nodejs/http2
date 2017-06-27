@@ -5,12 +5,19 @@ const common = require('../common');
 const assert = require('assert');
 const h2 = require('http2');
 
+const {
+  HTTP2_HEADER_METHOD,
+  HTTP2_HEADER_STATUS,
+  HTTP2_HEADER_PATH,
+  HTTP2_METHOD_POST
+} = h2.constants;
+
 // Only allow one stream to be open at a time
 const server = h2.createServer({ settings: { maxConcurrentStreams: 1 }});
 
 // The stream handler must be called only once
 server.on('stream', common.mustCall((stream) => {
-  stream.respond({ ':status': 200 });
+  stream.respond({ [HTTP2_HEADER_STATUS]: 200 });
   stream.end('hello world');
 }));
 server.listen(0);
@@ -32,7 +39,10 @@ server.on('listening', common.mustCall(() => {
   }));
 
   // This one should go through with no problems
-  const req1 = client.request({ ':path': '/' });
+  const req1 = client.request({
+    [HTTP2_HEADER_PATH]: '/',
+    [HTTP2_HEADER_METHOD]: HTTP2_METHOD_POST
+  });
   req1.on('aborted', common.mustNotCall());
   req1.on('response', common.mustCall());
   req1.resume();
@@ -40,7 +50,10 @@ server.on('listening', common.mustCall(() => {
   req1.end();
 
   // This one should be aborted
-  const req2 = client.request({ ':path': '/' });
+  const req2 = client.request({
+    [HTTP2_HEADER_PATH]: '/',
+    [HTTP2_HEADER_METHOD]: HTTP2_METHOD_POST
+  });
   req2.on('aborted', common.mustCall());
   req2.on('response', common.mustNotCall());
   req2.resume();
