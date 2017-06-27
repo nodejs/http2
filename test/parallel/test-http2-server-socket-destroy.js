@@ -5,6 +5,12 @@ const common = require('../common');
 const h2 = require('http2');
 const assert = require('assert');
 
+const {
+  HTTP2_HEADER_METHOD,
+  HTTP2_HEADER_PATH,
+  HTTP2_METHOD_POST
+} = h2.constants;
+
 const server = h2.createServer();
 
 // we use the lower-level API here
@@ -38,7 +44,9 @@ server.listen(0);
 server.on('listening', common.mustCall(() => {
   const client = h2.connect(`http://localhost:${server.address().port}`);
 
-  const req = client.request({ ':path': '/' });
+  const req = client.request({
+    [HTTP2_HEADER_PATH]: '/',
+    [HTTP2_HEADER_METHOD]: HTTP2_METHOD_POST });
 
   req.on('aborted', common.mustCall());
   req.on('end', common.mustCall());
