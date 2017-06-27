@@ -26,8 +26,6 @@ server.on('listening', common.mustCall(() => {
 
   const req = client.request({ ':path': '/' });
 
-  // Shutdown is graceful so this must be called
-  req.on('response', common.mustCall());
   req.resume();
   req.on('end', common.mustCall(() => server.close()));
   req.end();

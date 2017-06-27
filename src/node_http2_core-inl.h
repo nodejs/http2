@@ -118,6 +118,17 @@ inline void Nghttp2Session::HandlePriorityFrame(const nghttp2_frame* frame) {
   }
 }
 
+// Notifies the JS layer that a GOAWAY opaque data has been received
+inline void Nghttp2Session::HandleGoawayFrame(const nghttp2_frame* frame) {
+  nghttp2_goaway goaway_frame = frame->goaway;
+  DEBUG_HTTP2("Nghttp2Session %d: handling goaway frame\n", session_type_);
+
+  OnGoAway(goaway_frame.last_stream_id,
+            goaway_frame.error_code,
+            goaway_frame.opaque_data,
+            goaway_frame.opaque_data_len);
+}
+
 // Prompts nghttp2 to flush the queue of pending data frames
 inline void Nghttp2Session::SendPendingData() {
   const uint8_t* data;

@@ -85,6 +85,9 @@ int Nghttp2Session::OnFrameReceive(nghttp2_session* session,
     case NGHTTP2_PRIORITY:
       handle->HandlePriorityFrame(frame);
       break;
+    case NGHTTP2_GOAWAY:
+      handle->HandleGoawayFrame(frame);
+      break;
     default:
       break;
   }
