@@ -151,6 +151,10 @@ class Nghttp2Session {
                           int32_t parent,
                           int32_t weight,
                           int8_t exclusive) {}
+  virtual void OnGoAway(int32_t lastStreamID,
+                        uint32_t errorCode,
+                        uint8_t* data,
+                        size_t length) {}
   virtual void OnFrameError(int32_t id,
                             uint8_t type,
                             int error_code) {}
@@ -168,6 +172,7 @@ class Nghttp2Session {
   inline void HandleHeadersFrame(const nghttp2_frame* frame);
   inline void HandlePriorityFrame(const nghttp2_frame* frame);
   inline void HandleDataFrame(const nghttp2_frame* frame);
+  inline void HandleGoawayFrame(const nghttp2_frame* frame);
 
   /* callbacks for nghttp2 */
 #ifdef NODE_DEBUG_HTTP2

@@ -9,6 +9,7 @@ using v8::Boolean;
 using v8::Context;
 using v8::Function;
 using v8::Integer;
+using v8::Undefined;
 
 namespace http2 {
 
@@ -1004,6 +1005,37 @@ void Http2Session::OnPriority(int32_t stream,
       Boolean::New(isolate, exclusive)
     };
     Local<Value> ret = MakeCallback(env()->onpriority_string(),
+                                    arraysize(argv), argv);
+    if (ret.IsEmpty()) {
+      ClearFatalExceptionHandlers(env());
+      FatalException(isolate, try_catch);
+    }
+  }
+}
+
+void Http2Session::OnGoAway(int32_t lastStreamID,
+                            uint32_t errorCode,
+                            uint8_t* data,
+                            size_t length) {
+  Local<Context> context = env()->context();
+  Isolate* isolate = env()->isolate();
+  HandleScope scope(isolate);
+  Context::Scope context_scope(context);
+  if (object()->Has(context, env()->ongoawaydata_string()).FromJust()) {
+    v8::TryCatch try_catch(isolate);
+    Local<Value> argv[3] = {
+      Integer::NewFromUnsigned(isolate, errorCode),
+      Integer::New(isolate, lastStreamID),
+      Undefined(isolate)
+    };
+
+    if (length > 0) {
+      argv[2] = Buffer::Copy(isolate,
+                             reinterpret_cast<char*>(data),
+                             length).ToLocalChecked();
+    }
+
+    Local<Value> ret = MakeCallback(env()->ongoawaydata_string(),
                                     arraysize(argv), argv);
     if (ret.IsEmpty()) {
       ClearFatalExceptionHandlers(env());
