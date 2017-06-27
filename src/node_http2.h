@@ -341,6 +341,10 @@ class Http2Session : public AsyncWrap,
                   int32_t parent,
                   int32_t weight,
                   int8_t exclusive) override;
+  void OnGoAway(int32_t lastStreamID,
+                uint32_t errorCode,
+                uint8_t* data,
+                size_t length) override;
   void OnFrameError(int32_t id, uint8_t type, int error_code) override;
   void OnTrailers(Nghttp2Stream* stream,
                   MaybeStackBuffer<nghttp2_nv>* trailers) override;
