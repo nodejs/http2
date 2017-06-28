@@ -1,16 +1,9 @@
 // Flags: --expose-http2
 'use strict';
 
-const {
-  mustCall,
-  mustNotCall,
-  expectsError
-} = require('../common');
-
-const {
-  createServer,
-  connect
-} = require('http2');
+const { throws } = require('assert');
+const { mustCall, mustNotCall, expectsError } = require('../common');
+const { createServer, connect } = require('http2');
 
 // Http2ServerResponse.write does not imply there is a callback
 
@@ -40,12 +33,10 @@ const expectedError = expectsError({
       client.destroy();
       response.stream.session.on('close', mustCall(() => {
         response.on('error', mustNotCall());
-        try {
-          response.write('muahaha');
-          throw new Error();
-        } catch (error) {
-          expectedError(error);
-        }
+        throws(
+          () => { response.write('muahaha'); },
+          /The stream is already closed/
+        );
         server.close();
       }));
     }));
