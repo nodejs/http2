@@ -14,7 +14,7 @@ server.listen(0, common.mustCall(function() {
     assert.ok(response.stream.id % 2 === 1);
 
     response.write('This is a client-initiated response');
-    response.stream.on('finish', common.mustCall(function() {
+    response.on('finish', common.mustCall(function() {
       server.close();
     }));
 

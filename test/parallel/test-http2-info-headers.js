@@ -21,7 +21,7 @@ function onStream(stream, headers, flags) {
                 common.expectsError({
                   code: 'ERR_HTTP2_INVALID_INFO_STATUS',
                   type: RangeError,
-                  message: /^Invalid informational status code$/
+                  message: /^Invalid informational status code: 201$/
                 }));
 
   assert.throws(() => stream.additionalHeaders({ ':status': 101 }),
