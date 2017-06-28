@@ -11,7 +11,7 @@ const server = h2.createServer();
 server.on('stream', common.mustCall(onStream));
 
 function onStream(stream, headers, flags) {
-  stream.rstWithCancel();
+  stream.rstStream();
 
   assert.throws(() => {
     stream.additionalHeaders({
@@ -35,7 +35,7 @@ server.on('listening', common.mustCall(() => {
   req.on('headers', common.mustNotCall());
 
   req.on('streamClosed', common.mustCall((code) => {
-    assert.strictEqual(h2.constants.NGHTTP2_CANCEL, code);
+    assert.strictEqual(h2.constants.NGHTTP2_NO_ERROR, code);
     server.close();
     client.destroy();
   }));

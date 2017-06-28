@@ -434,6 +434,7 @@ class Http2Session : public AsyncWrap,
   static void SubmitSettings(const FunctionCallbackInfo<Value>& args);
   static void SubmitRstStream(const FunctionCallbackInfo<Value>& args);
   static void SubmitResponse(const FunctionCallbackInfo<Value>& args);
+  static void SubmitFile(const FunctionCallbackInfo<Value>& args);
   static void SubmitRequest(const FunctionCallbackInfo<Value>& args);
   static void SubmitPushPromise(const FunctionCallbackInfo<Value>& args);
   static void SubmitPriority(const FunctionCallbackInfo<Value>& args);

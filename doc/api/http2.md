@@ -59,6 +59,9 @@ req.end();
 ```
 
 ### Class: Http2Session
+<!-- YAML
+added: REPLACEME
+-->
 
 * Extends: {EventEmitter}
 
@@ -90,10 +93,16 @@ Once a `Socket` has been bound to an `Http2Session`, user code should rely
 solely on the API of the `Http2Session`.
 
 #### Event: 'close'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'close'` event is emitted once the `Http2Session` has been terminated.
 
 #### Event: 'connect'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'connect'` event is emitted once the `Http2Session` has been successfully
 connected to the remote peer and communication may begin.
@@ -101,17 +110,22 @@ connected to the remote peer and communication may begin.
 *Note*: User code will typically not listen for this event directly.
 
 #### Event: 'error'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'error'` event is emitted when an error occurs during the processing of
 an `Http2Session`.
 
 #### Event: 'frameError'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'frameError'` event is emitted when an error occurs while attempting to
 send a frame on the session. If the frame that could not be sent is associated
 with a specific `Http2Stream`, an attempt to emit `'frameError'` event on the
-`Http2Stream` is made. If the `Http2Stream` `'frameError'` event is not handled,
-the `'frameError'` is emitted on the `Http2Session`.
+`Http2Stream` is made.
 
 When invoked, the handler function will receive three arguments:
 
@@ -126,6 +140,9 @@ event is not associated with a stream, the `Http2Session` will be shutdown
 immediately following the `'frameError'` event.
 
 #### Event: 'goaway'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'goaway'` event is emitted when a GOAWAY frame is received. When invoked,
 the handler function will receive three arguments:
@@ -140,6 +157,9 @@ the handler function will receive three arguments:
 `'goaway'` event is emitted.
 
 #### Event: 'localSettings'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'localSettings'` event is emitted when an acknowledgement SETTINGS frame
 has been received. When invoked, the handler function will receive a copy of
@@ -158,6 +178,9 @@ session.on('localSettings', (settings) => {
 ```
 
 #### Event: 'remoteSettings'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'remoteSettings'` event is emitted when a new SETTINGS frame is received
 from the connected peer. When invoked, the handle function will receive a copy
@@ -170,6 +193,9 @@ session.on('remoteSettings', (settings) => {
 ```
 
 #### Event: 'stream'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'stream'` event is emitted when a new `Http2Stream` is created. When
 invoked, the handler function will receive a reference to the `Http2Stream`
@@ -220,6 +246,9 @@ server.listen(80);
 ```
 
 #### Event: 'socketError'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'socketError'` event is emitted when an `'error'` is emitted on the
 `Socket` instance bound to the `Http2Session`. If this event is not handled,
@@ -230,6 +259,9 @@ Likewise, when an `'error'` event is emitted on the `Http2Session`, a
 not handled, the `'error'` event will be re-emitted on the `Http2Session`.
 
 #### Event: 'timeout'
+<!-- YAML
+added: REPLACEME
+-->
 
 After the `http2session.setTimeout()` method is used to set the timeout period
 for this `Http2Session`, the `'timeout'` event is emitted if there is no
@@ -241,6 +273,9 @@ session.on('timeout', () => { /** .. **/ });
 ```
 
 #### http2session.destroy()
+<!-- YAML
+added: REPLACEME
+-->
 
 * Returns: {undefined}
 
@@ -248,6 +283,9 @@ Immediately terminates the `Http2Session` and the associated `net.Socket` or
 `tls.TLSSocket`.
 
 #### http2session.destroyed
+<!-- YAML
+added: REPLACEME
+-->
 
 * Value: {boolean}
 
@@ -255,6 +293,9 @@ Will be `true` if this `Http2Session` instance has been destroyed and must no
 longer be used, otherwise `false`.
 
 #### http2session.localSettings
+<!-- YAML
+added: REPLACEME
+-->
 
 * Value: {[Settings Object][]}
 
@@ -262,6 +303,9 @@ A prototype-less object describing the current local settings of this
 `Http2Session`. The local settings are local to *this* `Http2Session` instance.
 
 #### http2session.pendingSettingsAck
+<!-- YAML
+added: REPLACEME
+-->
 
 * Value: {boolean}
 
@@ -271,6 +315,9 @@ acknowledgement for a sent SETTINGS frame. Will be `true` after calling the
 frames have been acknowledged.
 
 #### http2session.remoteSettings
+<!-- YAML
+added: REPLACEME
+-->
 
 * Value: {[Settings Object][]}
 
@@ -278,6 +325,9 @@ A prototype-less object describing the current remote settings of this
 `Http2Session`. The remote settings are set by the *connected* HTTP/2 peer.
 
 #### http2session.request(headers[, options])
+<!-- YAML
+added: REPLACEME
+-->
 
 * `headers` {[Headers Object][]}
 * `options` {Object}
@@ -319,6 +369,9 @@ req.on('response', (headers) => {
 ```
 
 #### http2session.rstStream(stream, code)
+<!-- YAML
+added: REPLACEME
+-->
 
 * stream {Http2Stream}
 * code {number} Unsigned 32-bit integer identifying the error code. Defaults to
@@ -329,6 +382,9 @@ Sends an `RST_STREAM` frame to the connected HTTP/2 peer, causing the given
 `Http2Stream` to be closed on both sides using [error code][] `code`.
 
 #### http2session.setTimeout(msecs, callback)
+<!-- YAML
+added: REPLACEME
+-->
 
 * `msecs` {number}
 * `callback` {Function}
@@ -339,6 +395,9 @@ the `Http2Session` after `msecs` milliseconds. The given `callback` is
 registered as a listener on the `'timeout'` event.
 
 #### http2session.shutdown(options[, callback])
+<!-- YAML
+added: REPLACEME
+-->
 
 * `options` {Object}
   * `graceful` {boolean} `true` to attempt a polite shutdown of the
@@ -377,6 +436,9 @@ session.shutdown({
 ```
 
 #### http2session.socket
+<!-- YAML
+added: REPLACEME
+-->
 
 * Value: {net.Socket|tls.TLSSocket}
 
@@ -388,6 +450,9 @@ A reference to the [`net.Socket`][] or [`tls.TLSSocket`][] to which this
 details.
 
 #### http2session.state
+<!-- YAML
+added: REPLACEME
+-->
 
 * Value: {Object}
   * `effectiveLocalWindowSize` {number}
@@ -403,6 +468,9 @@ details.
 An object describing the current status of this `Http2Session`.
 
 #### http2session.priority(stream, options)
+<!-- YAML
+added: REPLACEME
+-->
 
 * `stream` {Http2Stream}
 * `options` {Object}
@@ -422,6 +490,9 @@ An object describing the current status of this `Http2Session`.
 Updates the priority for the given `Http2Stream` instance.
 
 #### http2session.settings(settings)
+<!-- YAML
+added: REPLACEME
+-->
 
 * `settings` {[Settings Object][]}
 * Returns {undefined}
@@ -439,6 +510,9 @@ is possible to send multiple SETTINGS frames while acknowledgement is still
 pending.
 
 #### http2session.type
+<!-- YAML
+added: REPLACEME
+-->
 
 * Value: {number}
 
@@ -448,6 +522,9 @@ server, and `http2.constants.NGHTTP2_SESSION_CLIENT` if the instance is a
 client.
 
 ### Class: Http2Stream
+<!-- YAML
+added: REPLACEME
+-->
 
 * Extends: {Duplex}
 
@@ -518,6 +595,9 @@ property will be `true` and the `http2stream.rstCode` property will specify the
 destroyed.
 
 #### Event: 'aborted'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'aborted'` event is emitted whenever a `Http2Stream` instance is
 abnormally aborted in mid-communication.
@@ -526,11 +606,17 @@ abnormally aborted in mid-communication.
 writable side has not been ended.
 
 #### Event: 'error'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'error'` event is emitted when an error occurs during the processing of
 an `Http2Stream`.
 
 #### Event: 'fetchTrailers'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'fetchTrailers'` event is emitted by the `Http2Stream` immediately after
 queuing the last chunk of payload data to be sent. The listener callback is
@@ -549,28 +635,41 @@ will be emitted if the `'fetchTrailers'` event handler attempts to set such
 header fields.
 
 #### Event: 'frameError'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'frameError'` event is emitted when an error occurs while attempting to
-send a frame on the stream. When invoked, the handler function will receive
-an integer argument identifying the frame type, and an integer argument
-identifying the error code. The `Http2Stream` instance will be destroyed
-immediately after the `'frameError'` event is emitted.
-
-If the `'frameError'` event is not handled on the `Http2Stream` object, a
-`'frameError'` event will be emitted on the owning `Http2Session` object.
+send a frame. When invoked, the handler function will receive an integer
+argument identifying the frame type, and an integer argument identifying the
+error code. The `Http2Stream` instance will be destroyed immediately after the
+`'frameError'` event is emitted.
 
 #### Event: 'streamClosed'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'streamClosed'` event is emitted when the `Http2Stream` is destroyed. Once
 this event is emitted, the `Http2Stream` instance is no longer usable.
 
+The listener callback is passed a single argument specifying the HTTP/2 error
+code specified when closing the stream. If the code is any value other than
+`NGHTTP2_NO_ERROR` (`0`), an `'error'` event will also be emitted.
+
 #### Event: 'timeout'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'timeout'` event is emitted after no activity is received for this
 `'Http2Stream'` within the number of millseconds set using
 `http2stream.setTimeout()`.
 
 #### Event: 'trailers'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'trailers'` event is emitted when a block of headers associated with
 trailing header fields is received. The listener callback is passed the
@@ -583,6 +682,9 @@ stream.on('trailers', (headers, flags) => {
 ```
 
 #### http2stream.aborted
+<!-- YAML
+added: REPLACEME
+-->
 
 * Value: {boolean}
 
@@ -590,6 +692,9 @@ Set to `true` if the `Http2Stream` instance was aborted abnormally. When set,
 the `'aborted'` event will have been emitted.
 
 #### http2stream.destroyed
+<!-- YAML
+added: REPLACEME
+-->
 
 * Value: {boolean}
 
@@ -597,6 +702,9 @@ Set to `true` if the `Http2Stream` instance has been destroyed and is no longer
 usable.
 
 #### http2stream.priority(options)
+<!-- YAML
+added: REPLACEME
+-->
 
 * `options` {Object}
   * `exclusive` {boolean} When `true` and `parent` identifies a parent Stream,
@@ -615,6 +723,9 @@ usable.
 Updates the priority for this `Http2Stream` instance.
 
 #### http2stream.rstCode
+<!-- YAML
+added: REPLACEME
+-->
 
 * Value: {number}
 
@@ -624,6 +735,9 @@ calling `http2stream.rstStream()`, or `http2stream.destroy()`. Will be
 `undefined` if the `Http2Stream` has not been closed.
 
 #### http2stream.rstStream(code)
+<!-- YAML
+added: REPLACEME
+-->
 
 * code {number} Unsigned 32-bit integer identifying the error code. Defaults to
   `http2.constant.NGHTTP2_NO_ERROR` (`0x00`)
@@ -633,36 +747,54 @@ Sends an `RST_STREAM` frame to the connected HTTP/2 peer, causing this
 `Http2Stream` to be closed on both sides using [error code][] `code`.
 
 #### http2stream.rstWithNoError()
+<!-- YAML
+added: REPLACEME
+-->
 
 * Returns: {undefined}
 
 Shortcut for `http2stream.rstStream()` using error code `0x00` (No Error).
 
 #### http2stream.rstWithProtocolError() {
+<!-- YAML
+added: REPLACEME
+-->
 
 * Returns: {undefined}
 
 Shortcut for `http2stream.rstStream()` using error code `0x01` (Protocol Error).
 
 #### http2stream.rstWithCancel() {
+<!-- YAML
+added: REPLACEME
+-->
 
 * Returns: {undefined}
 
 Shortcut for `http2stream.rstStream()` using error code `0x08` (Cancel).
 
 #### http2stream.rstWithRefuse() {
+<!-- YAML
+added: REPLACEME
+-->
 
 * Returns: {undefined}
 
 Shortcut for `http2stream.rstStream()` using error code `0x07` (Refused Stream).
 
 #### http2stream.rstWithInternalError() {
+<!-- YAML
+added: REPLACEME
+-->
 
 * Returns: {undefined}
 
 Shortcut for `http2stream.rstStream()` using error code `0x02` (Internal Error).
 
 #### http2stream.session
+<!-- YAML
+added: REPLACEME
+-->
 
 * Value: {Http2Sesssion}
 
@@ -670,6 +802,9 @@ A reference to the `Http2Session` instance that owns this `Http2Stream`. The
 value will be `undefined` after the `Http2Stream` instance is destroyed.
 
 #### http2stream.setTimeout(msecs, callback)
+<!-- YAML
+added: REPLACEME
+-->
 
 * `msecs` {number}
 * `callback` {Function}
@@ -686,6 +821,9 @@ req.setTimeout(5000, () => req.rstStreamWithCancel());
 ```
 
 #### http2stream.state
+<!-- YAML
+added: REPLACEME
+-->
 
 * Value: {Object}
   * `localWindowSize` {number}
@@ -698,6 +836,9 @@ req.setTimeout(5000, () => req.rstStreamWithCancel());
 A current state of this `Http2Stream`.
 
 ### Class: ClientHttp2Stream
+<!-- YAML
+added: REPLACEME
+-->
 
 * Extends {Http2Stream}
 
@@ -707,6 +848,9 @@ provide events such as `'response'` and `'push'` that are only relevant on
 the client.
 
 #### Event: 'headers'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'headers'` event is emitted when an additional block of headers is received
 for a stream, such as when a block of `1xx` informational headers are received.
@@ -720,6 +864,9 @@ stream.on('headers', (headers, flags) => {
 ```
 
 #### Event: 'push'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'push'` event is emitted when response headers for a Server Push stream
 are received. The listener callback is passed the [Headers Object][] and flags
@@ -732,6 +879,9 @@ stream.on('push', (headers, flags) => {
 ```
 
 #### Event: 'response'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'response'` event is emitted when a response `HEADERS` frame has been
 received for this stream from the connected HTTP/2 server. The listener is
@@ -750,6 +900,9 @@ req.on('response', (headers, flags) => {
 ```
 
 ### Class: ServerHttp2Stream
+<!-- YAML
+added: REPLACEME
+-->
 
 * Extends: {Http2Stream}
 
@@ -759,6 +912,9 @@ provide additional methods such as `http2stream.pushStream()` and
 `http2stream.respond()` that are only relevant on the server.
 
 #### http2stream.additionalHeaders(headers)
+<!-- YAML
+added: REPLACEME
+-->
 
 * `headers` {[Headers Object][]}
 * Returns: {undefined}
@@ -766,6 +922,9 @@ provide additional methods such as `http2stream.pushStream()` and
 Sends an additional informational `HEADERS` frame to the connected HTTP/2 peer.
 
 #### http2stream.pushStream(headers[, options], callback)
+<!-- YAML
+added: REPLACEME
+-->
 
 * `headers` {[Headers Object][]}
 * `options` {Object}
@@ -799,9 +958,14 @@ server.on('stream', (stream) => {
 ```
 
 #### http2stream.respond([headers[, options]])
+<!-- YAML
+added: REPLACEME
+-->
 
 * `headers` {[Headers Object][]}
 * `options` {Object}
+  * `endStream` {boolean} Set to `true` to indicate that the response will not
+    include payload data.
 * Returns: {undefined}
 
 ```js
@@ -813,23 +977,133 @@ server.on('stream', (stream) => {
 });
 ```
 
+#### http2stream.respondWithFD(fd[, headers])
+<!-- YAML
+added: REPLACEME
+-->
+
+* `fd` {number} A readable file descriptor
+* `headers` {[Headers Object][]}
+
+Initiates a response whose data is read from the given file descriptor. No
+validation is performed on the given file descriptor. If an error occurs while
+attempting to read data using the file descriptor, the `Http2Stream` will be
+closed using an `RST_STREAM` frame using the standard `INTERNAL_ERROR` code.
+
+When used, the `Http2Stream` object's Duplex interface will be closed
+automatically. HTTP trailer fields cannot be sent. The `'fetchTrailers'` event
+will *not* be emitted.
+
+```js
+const http2 = require('http2');
+const fs = require('fs');
+
+const fd = fs.openSync('/some/file', 'r');
+
+const server = http2.createServer();
+server.on('stream', (stream) => {
+  const stat = fs.fstatSync(fd);
+  const headers = {
+    'content-length': stat.size,
+    'last-modified': stat.mtime.toUTCString(),
+    'content-type': 'text/plain'
+  };
+  stream.respondWithFD(fd, headers);
+});
+server.on('close', () => fs.closeSync(fd));
+```
+
+#### http2stream.respondWithFile(path[, headers[, options]])
+<!-- YAML
+added: REPLACEME
+-->
+
+* `path` {string|Buffer|URL}
+* `headers` {[Headers Object][]}
+* `options` {Object}
+  * `statCheck` {Function}
+
+Sends a regular file as the response. The `path` must specify a regular file
+or an `'error'` event will be emitted on the `Http2Stream` object.
+
+When used, the `Http2Stream` object's Duplex interface will be closed
+automatically. HTTP trailer fields cannot be sent. The `'fetchTrailers'` event
+will *not* be emitted.
+
+The optional `options.statCheck` function may be specified to give user code
+an opportunity to set additional content headers based on the `fs.Stat` details
+of the given file:
+
+If an error occurs while attempting to read the file data, the `Http2Stream`
+will be closed using an `RST_STREAM` frame using the standard `INTERNAL_ERROR`
+code.
+
+Example using a file path:
+
+```js
+const http2 = require('http2');
+const server = http2.createServer();
+server.on('stream', (stream) => {
+  function statCheck(stat, headers) {
+    headers['last-modified'] = stat.mtime.toUTCString();
+  }
+  stream.respondWithFile('/some/file',
+                         { 'content-type': 'text/plain' },
+                         { statCheck });
+});
+```
+
+The `options.statCheck` function may also be used to cancel the send operation
+by returning `false`. For instance, a conditional request may check the stat
+results to determine if the file has been modified to return an appropriate
+`304` response:
+
+```js
+const http2 = require('http2');
+const server = http2.createServer();
+server.on('stream', (stream) => {
+  function statCheck(stat, headers) {
+    // Check the stat here...
+    stream.respond({ ':status': 304 });
+    return false; // Cancel the send operation
+  }
+  stream.respondWithFile('/some/file',
+                         { 'content-type': 'text/plain' },
+                         { statCheck });
+});
+```
+
+The `content-length` header field will be automatically set.
+
 ### Class: Http2Server
+<!-- YAML
+added: REPLACEME
+-->
 
 * Extends: {net.Server}
 
 #### Event: 'sessionError'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'sessionError'` event is emitted when an `'error'` event is emitted by
 an `Http2Session` object. If no listener is registered for this event, an
 `'error'` event is emitted.
 
 #### Event: 'socketError'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'socketError'` event is emitted when an `'error'` event is emitted by
 a `Socket` associated with the server. If no listener is registered for this
 event, an `'error'` event is emitted.
 
 #### Event: 'stream'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'stream'` event is emitted when a `'stream'` event has been emitted by
 an `Http2Session` associated with the server.
@@ -858,27 +1132,42 @@ server.on('stream', (stream, headers, flags) => {
 ```
 
 #### Event: 'timeout'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'timeout'` event is emitted when there is no activity on the Server for
 a given number of milliseconds set using `http2server.setTimeout()`.
 
 ### Class: Http2SecureServer
+<!-- YAML
+added: REPLACEME
+-->
 
 * Extends: {tls.Server}
 
 #### Event: 'sessionError'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'sessionError'` event is emitted when an `'error'` event is emitted by
 an `Http2Session` object. If no listener is registered for this event, an
 `'error'` event is emitted on the `Http2Session` instance instead.
 
 #### Event: 'socketError'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'socketError'` event is emitted when an `'error'` event is emitted by
 a `Socket` associated with the server. If no listener is registered for this
 event, an `'error'` event is emitted on the `Socket` instance instead.
 
 #### Event: 'unknownProtocol'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'unknownProtocol'` event is emitted when a connecting client fails to
 negotiate an allowed protocol (i.e. HTTP/2 or HTTP/1.1). The event handler
@@ -886,6 +1175,9 @@ receives the socket for handling. If no listener is registered for this event,
 the connection is terminated. See the
 
 #### Event: 'stream'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'stream'` event is emitted when a `'stream'` event has been emitted by
 an `Http2Session` associated with the server.
@@ -916,11 +1208,17 @@ server.on('stream', (stream, headers, flags) => {
 ```
 
 #### Event: 'timeout'
+<!-- YAML
+added: REPLACEME
+-->
 
 The `'timeout'` event is emitted when there is no activity on the Server for
 a given number of milliseconds set using `http2server.setTimeout()`.
 
 ### http2.getDefaultSettings()
+<!-- YAML
+added: REPLACEME
+-->
 
 * Returns: {[Settings Object][]}
 
@@ -929,6 +1227,9 @@ instance. This method returns a new object instance every time it is called
 so instances returned may be safely modified for use.
 
 ### http2.getPackedSettings(settings)
+<!-- YAML
+added: REPLACEME
+-->
 
 * `settings` {[Settings Object][]}
 * Returns: {Buffer}
@@ -947,6 +1248,9 @@ console.log(packed.toString('base64'));
 ```
 
 ### http2.createServer(options[, onRequestHandler])
+<!-- YAML
+added: REPLACEME
+-->
 
 * `options` {Object}
   * `maxDeflateDynamicTableSize` {number} Sets the maximum dynamic table size
@@ -999,6 +1303,9 @@ server.listen(80);
 ```
 
 ### http2.createSecureServer(options[, onRequestHandler])
+<!-- YAML
+added: REPLACEME
+-->
 
 * `options` {Object}
   * `allowHTTP1` {boolean} Incoming client connections that do not support
@@ -1061,6 +1368,9 @@ server.listen(80);
 ```
 
 ### http2.connect(authority, options, listener)
+<!-- YAML
+added: REPLACEME
+-->
 
 * `authority` {string|URL}
 * `options` {Object}
@@ -1109,6 +1419,9 @@ client.destroy();
 ```
 
 ### http2.constants
+<!-- YAML
+added: REPLACEME
+-->
 
 #### Error Codes for RST_STREAM and GOAWAY
 <a id="error_codes"></a>
