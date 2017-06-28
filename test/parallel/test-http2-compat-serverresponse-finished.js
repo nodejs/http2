@@ -15,7 +15,7 @@ server.listen(0, common.mustCall(function() {
       server.close();
     }));
     assert.strictEqual(response.finished, false);
-    response.end(' ');
+    response.end();
     assert.strictEqual(response.finished, true);
   }));
 

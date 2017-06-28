@@ -18,7 +18,7 @@ server.listen(0, common.mustCall(function() {
     response.stream.on('finish', common.mustCall(function() {
       server.close();
     }));
-    response.end(' ');
+    response.end();
   }));
 
   const url = `http://localhost:${port}`;

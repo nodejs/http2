@@ -14,7 +14,7 @@ const ajs_data = fs.readFileSync(path.resolve(common.fixturesDir, 'a.js'),
 const {
   HTTP2_HEADER_PATH,
   HTTP2_HEADER_STATUS
-} = http2.constants
+} = http2.constants;
 
 function loadKey(keyname) {
   return fs.readFileSync(
@@ -34,7 +34,6 @@ server.on('stream', (stream, headers) => {
     if (err != null || stat.isDirectory()) {
       stream.respond({ [HTTP2_HEADER_STATUS]: 404 });
       stream.end();
-      return;
     } else {
       stream.respond({ [HTTP2_HEADER_STATUS]: 200 });
       const str = fs.createReadStream(file);
@@ -63,7 +62,7 @@ server.listen(8000, () => {
   req1.on('response', common.mustCall((headers) => {
     assert.strictEqual(headers[HTTP2_HEADER_STATUS], 200);
   }));
-  var req1_data = '';
+  let req1_data = '';
   req1.setEncoding('utf8');
   req1.on('data', (chunk) => req1_data += chunk);
   req1.on('end', common.mustCall(() => {
