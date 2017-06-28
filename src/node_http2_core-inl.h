@@ -417,6 +417,19 @@ inline int Nghttp2Stream::SubmitResponse(nghttp2_nv* nva,
                                  nva, len, provider);
 }
 
+// Initiate a response that contains data read from a file descriptor.
+inline int Nghttp2Stream::SubmitFile(int fd, nghttp2_nv* nva, size_t len) {
+  CHECK_GT(len, 0);
+  CHECK_GT(fd, 0);
+  DEBUG_HTTP2("Nghttp2Stream %d: submitting file\n", id_);
+  nghttp2_data_provider prov;
+  prov.source.ptr = this;
+  prov.source.fd = fd;
+  prov.read_callback = Nghttp2Session::OnStreamReadFD;
+
+  return nghttp2_submit_response(session_->session(), id_,
+                                 nva, len, &prov);
+}
 
 // Initiate a request. If writable is true (the default), then
 // an nghttp2_data_provider will be initialized, causing at

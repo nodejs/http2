@@ -8,6 +8,19 @@ const NGHTTP2_INTERNAL_ERROR = h2.constants.NGHTTP2_INTERNAL_ERROR;
 
 const server = h2.createServer();
 
+// Do not mustCall the server side callbacks, they may or may not be called
+// depending on the OS. The determination is based largely on operating
+// system specific timings
+server.on('stream', (stream) => {
+  stream.on('error', common.expectsError({
+    code: 'ERR_HTTP2_STREAM_ERROR',
+    type: Error,
+    message: 'Stream closed with error code 2'
+  }));
+  stream.respond({});
+  stream.end();
+});
+
 server.listen(0);
 
 server.on('listening', common.mustCall(() => {
@@ -19,8 +32,19 @@ server.on('listening', common.mustCall(() => {
   req.destroy(err);
 
   req.on('error', common.mustCall((e) => {
-    assert.strictEqual(e, err);
-  }));
+    if (e.code === 'ERR_HTTP2_STREAM_ERROR') {
+      common.expectsError({
+        code: 'ERR_HTTP2_STREAM_ERROR',
+        type: Error,
+        message: 'Stream closed with error code 2'
+      });
+    } else {
+      common.expectsError({
+        type: Error,
+        message: 'test'
+      });
+    }
+  }, 2));
 
   req.on('streamClosed', common.mustCall((code) => {
     assert.strictEqual(req.rstCode, NGHTTP2_INTERNAL_ERROR);
@@ -32,4 +56,5 @@ server.on('listening', common.mustCall(() => {
   req.on('response', common.mustNotCall());
   req.resume();
   req.on('end', common.mustCall());
+
 }));

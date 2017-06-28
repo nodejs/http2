@@ -31,6 +31,11 @@ server.on('stream', common.mustCall((stream) => {
   }, common.mustCall((pushedStream) => {
     pushedStream.respond({ ':status': 200 });
     pushedStream.on('aborted', common.mustCall());
+    pushedStream.on('error', common.mustCall(common.expectsError({
+      code: 'ERR_HTTP2_STREAM_ERROR',
+      type: Error,
+      message: 'Stream closed with error code 8'
+    })));
   }));
 
   stream.end('hello world');
@@ -39,10 +44,6 @@ server.listen(0);
 
 server.on('listening', common.mustCall(() => {
 
-  // Setting the maxSendHeaderBlockLength, then attempting to send a
-  // headers block that is too big should cause a 'frameError' to
-  // be emitted, and will cause the stream to be shutdown automatically
-  // without the js layer being notified at all.
   const options = {
     maxReservedRemoteStreams: 1
   };
