@@ -101,7 +101,9 @@ int Nghttp2Session::OnFrameNotSent(nghttp2_session* session,
   Nghttp2Session* handle = static_cast<Nghttp2Session*>(user_data);
   DEBUG_HTTP2("Nghttp2Session %d: frame type %d was not sent, code: %d\n",
               handle->session_type_, frame->hd.type, error_code);
-  handle->OnFrameError(frame->hd.stream_id, frame->hd.type, error_code);
+  // Do not report if the frame was not sent due to the session closing
+  if (error_code != NGHTTP2_ERR_SESSION_CLOSING)
+    handle->OnFrameError(frame->hd.stream_id, frame->hd.type, error_code);
   return 0;
 }
 
@@ -157,6 +159,54 @@ ssize_t Nghttp2Session::OnSelectPadding(nghttp2_session* session,
     DEBUG_HTTP2("Nghttp2Session %d: using padding, size: %d\n",
                 handle->session_type_, padding);
   return padding;
+}
+
+// Called by nghttp2 to collect the data while a file response is sent.
+// The buf is the DATA frame buffer that needs to be filled with at most
+// length bytes. flags is used to control what nghttp2 does next.
+ssize_t Nghttp2Session::OnStreamReadFD(nghttp2_session* session,
+                                       int32_t id,
+                                       uint8_t* buf,
+                                       size_t length,
+                                       uint32_t* flags,
+                                       nghttp2_data_source* source,
+                                       void* user_data) {
+  Nghttp2Session* handle = static_cast<Nghttp2Session*>(user_data);
+  DEBUG_HTTP2("Nghttp2Session %d: reading outbound file data for stream %d\n",
+              handle->sesion_type_, id);
+  Nghttp2Stream* stream = handle->FindStream(id);
+
+  int fd = source->fd;
+  int64_t offset = stream->fd_offset_;
+  ssize_t numchars;
+
+  uv_buf_t data;
+  data.base = reinterpret_cast<char*>(buf);
+  data.len = length;
+
+  uv_fs_t read_req;
+  numchars = uv_fs_read(handle->loop_,
+                        &read_req,
+                        fd, &data, 1,
+                        offset, nullptr);
+  uv_fs_req_cleanup(&read_req);
+
+  // Close the stream with an error if reading fails
+  if (numchars < 0)
+    return NGHTTP2_ERR_TEMPORAL_CALLBACK_FAILURE;
+
+  // Update the read offset for the next read
+  stream->fd_offset_ += numchars;
+
+  // if numchars < length, assume that we are done.
+  if (numchars < length) {
+    DEBUG_HTTP2("Nghttp2Session %d: no more data for stream %d\n",
+                handle->session_type_, id);
+    *flags |= NGHTTP2_DATA_FLAG_EOF;
+    // Sending trailers is not permitted with this provider.
+  }
+
+  return numchars;
 }
 
 // Called by nghttp2 to collect the data to pack within a DATA frame.

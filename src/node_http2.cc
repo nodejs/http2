@@ -598,6 +598,35 @@ void Http2Session::SubmitResponse(const FunctionCallbackInfo<Value>& args) {
       stream->SubmitResponse(*list, list.length(), endStream));
 }
 
+void Http2Session::SubmitFile(const FunctionCallbackInfo<Value>& args) {
+  CHECK(args[0]->IsNumber());  // Stream ID
+  CHECK(args[1]->IsNumber());  // File Descriptor
+  CHECK(args[2]->IsArray());  // Headers
+
+  Http2Session* session;
+  Nghttp2Stream* stream;
+
+  ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
+  Environment* env = session->env();
+  Local<Context> context = env->context();
+  Isolate* isolate = env->isolate();
+
+  int32_t id = args[0]->Int32Value(context).ToChecked();
+  int fd = args[1]->Int32Value(context).ToChecked();
+  Local<Array> headers = args[2].As<Array>();
+
+  DEBUG_HTTP2("Http2Session: submitting file %d for stream %d: headers: %d, "
+              "end-stream: %d\n", fd, id, headers->Length());
+
+  if (!(stream = session->FindStream(id))) {
+    return args.GetReturnValue().Set(NGHTTP2_ERR_INVALID_STREAM_ID);
+  }
+
+  Headers list(isolate, context, headers);
+
+  args.GetReturnValue().Set(stream->SubmitFile(fd, *list, list.length()));
+}
+
 void Http2Session::SendHeaders(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[0]->IsNumber());
   CHECK(args[1]->IsArray());
@@ -1198,6 +1227,7 @@ void Initialize(Local<Object> target,
       env->NewFunctionTemplate(Http2Session::New);
   session->SetClassName(http2SessionClassName);
   session->InstanceTemplate()->SetInternalFieldCount(1);
+  env->SetProtoMethod(session, "getAsyncId", AsyncWrap::GetAsyncId);
   env->SetProtoMethod(session, "consume",
                       Http2Session::Consume);
   env->SetProtoMethod(session, "destroy",
@@ -1216,6 +1246,8 @@ void Initialize(Local<Object> target,
                       Http2Session::SubmitRstStream);
   env->SetProtoMethod(session, "submitResponse",
                       Http2Session::SubmitResponse);
+  env->SetProtoMethod(session, "submitFile",
+                      Http2Session::SubmitFile);
   env->SetProtoMethod(session, "submitRequest",
                       Http2Session::SubmitRequest);
   env->SetProtoMethod(session, "submitPriority",

@@ -14,8 +14,8 @@ function onStream(stream, headers, flags) {
   stream.session.destroy();
   assert.throws(() => stream.write('data'),
                 common.expectsError({
-                  type: Error,
-                  message: /^write after end$/
+                  code: 'ERR_HTTP2_INVALID_STREAM',
+                  type: Error
                 }));
 }
 

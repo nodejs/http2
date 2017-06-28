@@ -14,6 +14,11 @@ server.on('stream', common.mustCall((stream) => {
     opaqueData: data
   });
   stream.end();
+  stream.on('error', common.mustCall(common.expectsError({
+    code: 'ERR_HTTP2_STREAM_ERROR',
+    type: Error,
+    message: 'Stream closed with error code 7'
+  })));
 }));
 
 server.listen(0, () => {

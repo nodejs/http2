@@ -58,5 +58,10 @@ server.on('listening', common.mustCall(() => {
   req2.on('response', common.mustNotCall());
   req2.resume();
   req2.on('end', onEnd);
+  req2.on('error', common.mustCall(common.expectsError({
+    code: 'ERR_HTTP2_STREAM_ERROR',
+    type: Error,
+    message: 'Stream closed with error code 7'
+  })));
 
 }));

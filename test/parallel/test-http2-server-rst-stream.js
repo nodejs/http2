@@ -8,9 +8,15 @@ const http2 = require('http2');
 const {
   HTTP2_HEADER_METHOD,
   HTTP2_HEADER_PATH,
-  HTTP2_METHOD_POST
+  HTTP2_METHOD_POST,
+  NGHTTP2_CANCEL,
+  NGHTTP2_NO_ERROR,
+  NGHTTP2_PROTOCOL_ERROR,
+  NGHTTP2_REFUSED_STREAM,
+  NGHTTP2_INTERNAL_ERROR
 } = http2.constants;
 
+const errCheck = common.expectsError({ code: 'ERR_HTTP2_STREAM_ERROR' });
 
 function checkRstCode(rstMethod, expectRstCode) {
   const server = http2.createServer();
@@ -24,6 +30,10 @@ function checkRstCode(rstMethod, expectRstCode) {
       stream[rstMethod](expectRstCode);
     else
       stream[rstMethod]();
+
+    if (expectRstCode > NGHTTP2_NO_ERROR) {
+      stream.on('error', common.mustCall(errCheck));
+    }
   });
 
   server.listen(0, common.mustCall(() => {
@@ -46,13 +56,13 @@ function checkRstCode(rstMethod, expectRstCode) {
     req.on('data', common.mustCall());
     req.on('aborted', common.mustCall());
     req.on('end', common.mustCall());
+
+    if (expectRstCode > NGHTTP2_NO_ERROR) {
+      req.on('error', common.mustCall(errCheck));
+    }
+
   }));
 }
-
-const {
-  NGHTTP2_CANCEL, NGHTTP2_NO_ERROR, NGHTTP2_PROTOCOL_ERROR,
-  NGHTTP2_REFUSED_STREAM, NGHTTP2_INTERNAL_ERROR
-} = http2.constants;
 
 checkRstCode('rstStream', NGHTTP2_NO_ERROR);
 checkRstCode('rstWithNoError', NGHTTP2_NO_ERROR);

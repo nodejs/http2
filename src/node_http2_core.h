@@ -208,7 +208,13 @@ class Nghttp2Session {
                                  const uint8_t *data,
                                  size_t len,
                                  void* user_data);
-
+  static ssize_t OnStreamReadFD(nghttp2_session* session,
+                                int32_t id,
+                                uint8_t* buf,
+                                size_t length,
+                                uint32_t* flags,
+                                nghttp2_data_source* source,
+                                void* user_data);
   static ssize_t OnStreamRead(nghttp2_session* session,
                               int32_t id,
                               uint8_t* buf,
@@ -299,6 +305,9 @@ class Nghttp2Stream {
   inline int SubmitResponse(nghttp2_nv* nva,
                             size_t len,
                             bool emptyPayload = false);
+
+  // Send data read from a file descriptor as the response on this stream.
+  inline int SubmitFile(int fd, nghttp2_nv* nva, size_t len);
 
   // Submit informational headers for this stream
   inline int SubmitInfo(nghttp2_nv* nva, size_t len);
@@ -408,6 +417,7 @@ class Nghttp2Stream {
   nghttp2_stream_write_queue* queue_tail_ = nullptr;
   unsigned int queue_head_index_ = 0;
   size_t queue_head_offset_ = 0;
+  size_t fd_offset_ = 0;
 
   // The Current Headers block... As headers are received for this stream,
   // they are temporarily stored here until the OnFrameReceived is called
