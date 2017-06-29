@@ -28,7 +28,7 @@ server.listen(0, common.mustCall(function() {
     assert.ok(request.connection instanceof net.Socket);
     assert.strictEqual(request.socket, request.connection);
 
-    response.stream.on('finish', common.mustCall(function() {
+    response.on('finish', common.mustCall(function() {
       server.close();
     }));
     response.end();

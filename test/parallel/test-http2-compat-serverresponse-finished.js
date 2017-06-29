@@ -11,7 +11,7 @@ const server = h2.createServer();
 server.listen(0, common.mustCall(function() {
   const port = server.address().port;
   server.once('request', common.mustCall(function(request, response) {
-    response.stream.on('finish', common.mustCall(function() {
+    response.on('finish', common.mustCall(function() {
       server.close();
     }));
     assert.strictEqual(response.finished, false);
