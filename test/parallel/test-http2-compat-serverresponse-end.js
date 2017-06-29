@@ -1,7 +1,7 @@
 // Flags: --expose-http2
 'use strict';
 
-const { mustCall } = require('../common');
+const { mustCall, mustNotCall } = require('../common');
 const { createServer, connect } = require('http2');
 
 // Http2ServerResponse.end
@@ -26,6 +26,7 @@ const { createServer, connect } = require('http2');
         ':authority': `localhost:${port}`
       };
       const request = client.request(headers);
+      request.on('data', mustNotCall())
       request.on('end', mustCall(() => {
         client.destroy();
       }));
