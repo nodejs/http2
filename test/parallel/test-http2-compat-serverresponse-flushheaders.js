@@ -13,12 +13,12 @@ server.listen(0, common.mustCall(function() {
   server.once('request', common.mustCall(function(request, response) {
     response.flushHeaders();
     response.flushHeaders(); // Idempotent
-    response.writeHead(200, {'foo-bar': 'abc123'}); // Ignored
+    response.writeHead(400, {'foo-bar': 'abc123'}); // Ignored
 
-    response.stream.on('finish', common.mustCall(function() {
+    response.on('finish', common.mustCall(function() {
       server.close();
     }));
-    response.end(' ');
+    response.end();
   }));
 
   const url = `http://localhost:${port}`;

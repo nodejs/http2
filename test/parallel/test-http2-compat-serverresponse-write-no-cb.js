@@ -1,18 +1,23 @@
 // Flags: --expose-http2
 'use strict';
 
-const common = require('../common');
-const assert = require('assert');
-const h2 = require('http2');
+const { throws } = require('assert');
+const { mustCall, mustNotCall, expectsError } = require('../common');
+const { createServer, connect } = require('http2');
 
 // Http2ServerResponse.write does not imply there is a callback
 
+const expectedError = expectsError({
+  code: 'ERR_HTTP2_STREAM_CLOSED',
+  message: 'The stream is already closed'
+});
+
 {
-  const server = h2.createServer();
-  server.listen(0, common.mustCall(function() {
+  const server = createServer();
+  server.listen(0, mustCall(() => {
     const port = server.address().port;
     const url = `http://localhost:${port}`;
-    const client = h2.connect(url, common.mustCall(function() {
+    const client = connect(url, mustCall(() => {
       const headers = {
         ':path': '/',
         ':method': 'GET',
@@ -24,13 +29,14 @@ const h2 = require('http2');
       request.resume();
     }));
 
-    server.once('request', common.mustCall(function(request, response) {
+    server.once('request', mustCall((request, response) => {
       client.destroy();
-      response.stream.session.on('close', common.mustCall(function() {
-        response.on('error', common.mustCall(function(err) {
-          assert.strictEqual(err.message, 'HTTP/2 Stream has been closed');
-        }));
-        response.write('muahaha');
+      response.stream.session.on('close', mustCall(() => {
+        response.on('error', mustNotCall());
+        throws(
+          () => { response.write('muahaha'); },
+          /The stream is already closed/
+        );
         server.close();
       }));
     }));
@@ -38,11 +44,11 @@ const h2 = require('http2');
 }
 
 {
-  const server = h2.createServer();
-  server.listen(0, common.mustCall(function() {
+  const server = createServer();
+  server.listen(0, mustCall(() => {
     const port = server.address().port;
     const url = `http://localhost:${port}`;
-    const client = h2.connect(url, common.mustCall(function() {
+    const client = connect(url, mustCall(() => {
       const headers = {
         ':path': '/',
         ':method': 'get',
@@ -54,12 +60,10 @@ const h2 = require('http2');
       request.resume();
     }));
 
-    server.once('request', common.mustCall(function(request, response) {
+    server.once('request', mustCall((request, response) => {
       client.destroy();
-      response.stream.session.on('close', common.mustCall(function() {
-        response.write('muahaha', common.mustCall(function(err) {
-          assert.strictEqual(err.message, 'HTTP/2 Stream has been closed');
-        }));
+      response.stream.session.on('close', mustCall(() => {
+        response.write('muahaha', mustCall(expectedError));
         server.close();
       }));
     }));
@@ -67,11 +71,11 @@ const h2 = require('http2');
 }
 
 {
-  const server = h2.createServer();
-  server.listen(0, common.mustCall(function() {
+  const server = createServer();
+  server.listen(0, mustCall(() => {
     const port = server.address().port;
     const url = `http://localhost:${port}`;
-    const client = h2.connect(url, common.mustCall(function() {
+    const client = connect(url, mustCall(() => {
       const headers = {
         ':path': '/',
         ':method': 'get',
@@ -83,11 +87,9 @@ const h2 = require('http2');
       request.resume();
     }));
 
-    server.once('request', common.mustCall(function(request, response) {
-      response.stream.session.on('close', common.mustCall(function() {
-        response.write('muahaha', 'utf8', common.mustCall(function(err) {
-          assert.strictEqual(err.message, 'HTTP/2 Stream has been closed');
-        }));
+    server.once('request', mustCall((request, response) => {
+      response.stream.session.on('close', mustCall(() => {
+        response.write('muahaha', 'utf8', mustCall(expectedError));
         server.close();
       }));
       client.destroy();
