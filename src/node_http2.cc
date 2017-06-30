@@ -156,12 +156,7 @@ ssize_t Http2Session::OnCallbackPadding(size_t frameLen,
     uint32_t* buffer = env()->http2_padding_buffer();
     buffer[0] = frameLen;
     buffer[1] = maxPayloadLen;
-    v8::TryCatch try_catch(isolate);
-    Local<Value> ret = MakeCallback(env()->ongetpadding_string(), 0, nullptr);
-    if (ret.IsEmpty()) {
-      ClearFatalExceptionHandlers(env());
-      FatalException(isolate, try_catch);
-    }
+    MakeCallback(env()->ongetpadding_string(), 0, nullptr);
     uint32_t retval = buffer[2];
     retval = retval <= maxPayloadLen ? retval : maxPayloadLen;
     retval = retval >= frameLen ? retval : frameLen;
@@ -857,13 +852,9 @@ void Http2Session::OnTrailers(Nghttp2Stream* stream,
       Integer::New(isolate, stream->id())
     };
 
-    v8::TryCatch try_catch(isolate);
     Local<Value> ret = MakeCallback(env()->ontrailers_string(),
                                     arraysize(argv), argv);
-    if (ret.IsEmpty()) {
-      ClearFatalExceptionHandlers(env());
-      FatalException(isolate, try_catch);
-    } else {
+    if (!ret.IsEmpty()) {
       if (ret->IsArray()) {
         Local<Array> headers = ret.As<Array>();
         if (headers->Length() > 0) {
@@ -924,13 +915,7 @@ void Http2Session::OnHeaders(Nghttp2Stream* stream,
       Integer::New(isolate, flags),
       holder
     };
-    v8::TryCatch try_catch(isolate);
-    Local<Value> ret = MakeCallback(env()->onheaders_string(),
-                                    arraysize(argv), argv);
-    if (ret.IsEmpty()) {
-      ClearFatalExceptionHandlers(env());
-      FatalException(isolate, try_catch);
-    }
+    MakeCallback(env()->onheaders_string(), arraysize(argv), argv);
   }
 }
 
@@ -945,13 +930,7 @@ void Http2Session::OnStreamClose(int32_t id, uint32_t code) {
       Integer::New(isolate, id),
       Integer::NewFromUnsigned(isolate, code)
     };
-    v8::TryCatch try_catch(isolate);
-    Local<Value> ret = MakeCallback(env()->onstreamclose_string(),
-                                    arraysize(argv), argv);
-    if (ret.IsEmpty()) {
-      ClearFatalExceptionHandlers(env());
-      FatalException(isolate, try_catch);
-    }
+    MakeCallback(env()->onstreamclose_string(), arraysize(argv), argv);
   }
 }
 
@@ -985,14 +964,8 @@ void Http2Session::OnSettings(bool ack) {
   HandleScope scope(isolate);
   Context::Scope context_scope(context);
   if (object()->Has(context, env()->onsettings_string()).FromJust()) {
-    v8::TryCatch try_catch(isolate);
     Local<Value> argv[1] = { Boolean::New(isolate, ack) };
-    Local<Value> ret = MakeCallback(env()->onsettings_string(),
-                                    arraysize(argv), argv);
-    if (ret.IsEmpty()) {
-      ClearFatalExceptionHandlers(env());
-      FatalException(isolate, try_catch);
-    }
+    MakeCallback(env()->onsettings_string(), arraysize(argv), argv);
   }
 }
 
@@ -1002,18 +975,12 @@ void Http2Session::OnFrameError(int32_t id, uint8_t type, int error_code) {
   HandleScope scope(isolate);
   Context::Scope context_scope(context);
   if (object()->Has(context, env()->onframeerror_string()).FromJust()) {
-    v8::TryCatch try_catch(isolate);
     Local<Value> argv[3] = {
       Integer::New(isolate, id),
       Integer::New(isolate, type),
       Integer::New(isolate, error_code)
     };
-    Local<Value> ret = MakeCallback(env()->onframeerror_string(),
-                                    arraysize(argv), argv);
-    if (ret.IsEmpty()) {
-      ClearFatalExceptionHandlers(env());
-      FatalException(isolate, try_catch);
-    }
+    MakeCallback(env()->onframeerror_string(), arraysize(argv), argv);
   }
 }
 
@@ -1026,19 +993,13 @@ void Http2Session::OnPriority(int32_t stream,
   HandleScope scope(isolate);
   Context::Scope context_scope(context);
   if (object()->Has(context, env()->onpriority_string()).FromJust()) {
-    v8::TryCatch try_catch(isolate);
     Local<Value> argv[4] = {
       Integer::New(isolate, stream),
       Integer::New(isolate, parent),
       Integer::New(isolate, weight),
       Boolean::New(isolate, exclusive)
     };
-    Local<Value> ret = MakeCallback(env()->onpriority_string(),
-                                    arraysize(argv), argv);
-    if (ret.IsEmpty()) {
-      ClearFatalExceptionHandlers(env());
-      FatalException(isolate, try_catch);
-    }
+    MakeCallback(env()->onpriority_string(), arraysize(argv), argv);
   }
 }
 
@@ -1051,7 +1012,6 @@ void Http2Session::OnGoAway(int32_t lastStreamID,
   HandleScope scope(isolate);
   Context::Scope context_scope(context);
   if (object()->Has(context, env()->ongoawaydata_string()).FromJust()) {
-    v8::TryCatch try_catch(isolate);
     Local<Value> argv[3] = {
       Integer::NewFromUnsigned(isolate, errorCode),
       Integer::New(isolate, lastStreamID),
@@ -1064,12 +1024,7 @@ void Http2Session::OnGoAway(int32_t lastStreamID,
                              length).ToLocalChecked();
     }
 
-    Local<Value> ret = MakeCallback(env()->ongoawaydata_string(),
-                                    arraysize(argv), argv);
-    if (ret.IsEmpty()) {
-      ClearFatalExceptionHandlers(env());
-      FatalException(isolate, try_catch);
-    }
+    MakeCallback(env()->ongoawaydata_string(), arraysize(argv), argv);
   }
 }
 
