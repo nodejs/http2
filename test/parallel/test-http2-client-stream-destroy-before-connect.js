@@ -14,7 +14,7 @@ const server = h2.createServer();
 server.on('stream', (stream) => {
   stream.on('error', common.expectsError({
     code: 'ERR_HTTP2_STREAM_ERROR',
-    type: 'Error',
+    type: Error,
     message: 'Stream closed with error code 2'
   }));
   stream.respond({});

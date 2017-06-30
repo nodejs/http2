@@ -102,7 +102,9 @@ int Nghttp2Session::OnFrameNotSent(nghttp2_session* session,
   DEBUG_HTTP2("Nghttp2Session %d: frame type %d was not sent, code: %d\n",
               handle->session_type_, frame->hd.type, error_code);
   // Do not report if the frame was not sent due to the session closing
-  if (error_code != NGHTTP2_ERR_SESSION_CLOSING)
+  if (error_code != NGHTTP2_ERR_SESSION_CLOSING &&
+      error_code != NGHTTP2_ERR_STREAM_CLOSED &&
+      error_code != NGHTTP2_ERR_STREAM_CLOSING)
     handle->OnFrameError(frame->hd.stream_id, frame->hd.type, error_code);
   return 0;
 }
