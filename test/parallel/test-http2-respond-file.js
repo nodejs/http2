@@ -34,7 +34,6 @@ server.listen(0, () => {
   const req = client.request();
 
   req.on('response', common.mustCall((headers) => {
-    console.log(headers);
     assert.strictEqual(headers[HTTP2_HEADER_CONTENT_TYPE], 'text/plain');
     assert.strictEqual(+headers[HTTP2_HEADER_CONTENT_LENGTH], data.length);
     assert.strictEqual(headers[HTTP2_HEADER_LAST_MODIFIED],
