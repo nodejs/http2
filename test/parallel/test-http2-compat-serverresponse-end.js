@@ -7,16 +7,14 @@ const { createServer, connect } = require('http2');
 // Http2ServerResponse.end
 
 {
-  const server = createServer();
-  server.listen(0, mustCall(() => {
-    const port = server.address().port;
-    server.once('request', mustCall((request, response) => {
-      response.on('finish', mustCall(() => {
-        server.close();
-      }));
-      response.end();
+  const server = createServer(mustCall((request, response) => {
+    response.end(mustCall(() => {
+      server.close();
     }));
-
+    response.end(mustNotCall());
+  }));
+  server.listen(0, mustCall(() => {
+    const {port} = server.address();
     const url = `http://localhost:${port}`;
     const client = connect(url, mustCall(() => {
       const headers = {
