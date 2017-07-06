@@ -921,6 +921,27 @@ added: REPLACEME
 
 Sends an additional informational `HEADERS` frame to the connected HTTP/2 peer.
 
+#### http2stream.headersSent
+<!-- YAML
+added: REPLACEME
+-->
+
+* Value: {boolean}
+
+Boolean (read-only). True if headers were sent, false otherwise.
+
+#### http2stream.pushAllowed
+<!-- YAML
+added: REPLACEME
+-->
+
+* Value: {boolean}
+
+Read-only property mapped to the `SETTINGS_ENABLE_PUSH` flag of the remote
+client's most recent `SETTINGS` frame. Will be `true` if the remote peer
+accepts push streams, `false` otherwise. Settings are the same for every
+`Http2Stream` in the same `Http2Session`.
+
 #### http2stream.pushStream(headers[, options], callback)
 <!-- YAML
 added: REPLACEME
@@ -1367,7 +1388,7 @@ server.on('stream', (stream, headers) => {
 server.listen(80);
 ```
 
-### http2.connect(authority, options, listener)
+### http2.connect(authority[, options][, listener])
 <!-- YAML
 added: REPLACEME
 -->
