@@ -201,7 +201,7 @@ ssize_t Nghttp2Session::OnStreamReadFD(nghttp2_session* session,
   stream->fd_offset_ += numchars;
 
   // if numchars < length, assume that we are done.
-  if (numchars < length) {
+  if (static_cast<size_t>(numchars) < length) {
     DEBUG_HTTP2("Nghttp2Session %d: no more data for stream %d\n",
                 handle->session_type_, id);
     *flags |= NGHTTP2_DATA_FLAG_EOF;
