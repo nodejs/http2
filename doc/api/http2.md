@@ -1064,7 +1064,7 @@ const server = http2.createServer();
 server.on('stream', (stream) => {
   function statCheck(stat, headers) {
     // Check the stat here...
-    stream.respond({ ':status': 304 });
+    stream.respond({ ':status': 304 }, { endStream: true });
     return false; // Cancel the send operation
   }
   stream.respondWithFile('/some/file',
