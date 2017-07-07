@@ -134,7 +134,7 @@ inline void Nghttp2Session::HandleGoawayFrame(const nghttp2_frame* frame) {
 inline void Nghttp2Session::SendPendingData() {
   const uint8_t* data;
   ssize_t len = 0;
-  ssize_t ncopy = 0;
+  size_t ncopy = 0;
   uv_buf_t buf;
   AllocateSend(SEND_BUFFER_RECOMMENDED_SIZE, &buf);
   while (nghttp2_session_want_write(session_)) {
