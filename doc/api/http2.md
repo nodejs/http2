@@ -1388,7 +1388,7 @@ server.on('stream', (stream, headers) => {
 server.listen(80);
 ```
 
-### http2.connect(authority, options, listener)
+### http2.connect(authority[, options][, listener])
 <!-- YAML
 added: REPLACEME
 -->
