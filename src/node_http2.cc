@@ -720,7 +720,7 @@ void Http2Session::SubmitGoaway(const FunctionCallbackInfo<Value>& args) {
 
   DEBUG_HTTP2("Http2Session: initiating immediate shutdown. "
               "last-stream-id: %d, code: %d, opaque-data: %d\n",
-              req->lastStreamID(), req->errorCode(), req->opaqueDataLength());
+              lastStreamID, errorCode, length);
   int status = nghttp2_submit_goaway(session->session(),
                                      NGHTTP2_FLAG_NONE,
                                      lastStreamID,
@@ -950,12 +950,16 @@ void Http2Session::OnDataChunk(
   obj->Set(context,
            env()->id_string(),
            Integer::New(isolate, stream->id())).FromJust();
-  Local<Object> buf = Buffer::New(isolate,
-                                  chunk->buf.base,
-                                  chunk->buf.len,
-                                  FreeDataChunk,
-                                  chunk).ToLocalChecked();
-  EmitData(chunk->buf.len, buf, obj);
+  ssize_t len = -1;
+  Local<Object> buf;
+  if (chunk != nullptr) {
+    len = chunk->buf.len;
+    buf = Buffer::New(isolate,
+                      chunk->buf.base, len,
+                      FreeDataChunk,
+                      chunk).ToLocalChecked();
+  }
+  EmitData(len, buf, obj);
 }
 
 void Http2Session::OnSettings(bool ack) {
@@ -1277,6 +1281,13 @@ void Initialize(Local<Object> target,
   NODE_DEFINE_CONSTANT(constants, MIN_MAX_FRAME_SIZE);
   NODE_DEFINE_CONSTANT(constants, MAX_INITIAL_WINDOW_SIZE);
   NODE_DEFINE_CONSTANT(constants, NGHTTP2_DEFAULT_WEIGHT);
+
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_SETTINGS_HEADER_TABLE_SIZE);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_SETTINGS_ENABLE_PUSH);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_SETTINGS_MAX_FRAME_SIZE);
+  NODE_DEFINE_CONSTANT(constants, NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE);
 
   NODE_DEFINE_CONSTANT(constants, PADDING_STRATEGY_NONE);
   NODE_DEFINE_CONSTANT(constants, PADDING_STRATEGY_MAX);

@@ -175,7 +175,7 @@ ssize_t Nghttp2Session::OnStreamReadFD(nghttp2_session* session,
                                        void* user_data) {
   Nghttp2Session* handle = static_cast<Nghttp2Session*>(user_data);
   DEBUG_HTTP2("Nghttp2Session %d: reading outbound file data for stream %d\n",
-              handle->sesion_type_, id);
+              handle->session_type_, id);
   Nghttp2Stream* stream = handle->FindStream(id);
 
   int fd = source->fd;

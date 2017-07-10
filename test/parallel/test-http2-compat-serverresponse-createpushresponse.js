@@ -7,82 +7,73 @@ const h2 = require('http2');
 
 // Push a request & response
 
-const server = h2.createServer();
-server.listen(0, common.mustCall(function() {
-  const port = server.address().port;
-  server.once('request', common.mustCall(function(request, response) {
-    assert.ok(response.stream.id % 2 === 1);
+const pushExpect = 'This is a server-initiated response';
+const servExpect = 'This is a client-initiated response';
 
-    response.write('This is a client-initiated response');
-    response.on('finish', common.mustCall(function() {
-      server.close();
-    }));
+const server = h2.createServer((request, response) => {
+  assert.strictEqual(response.stream.id % 2, 1);
+  response.write(servExpect);
 
-    const headers = {
-      ':path': '/pushed',
-      ':method': 'GET',
-      ':scheme': 'http',
-      ':authority': `localhost:${port}`
-    };
-
-    response.createPushResponse(
-      headers,
-      common.mustCall(function(error, pushResponse) {
-        assert.strictEqual(error, null);
-        assert.ok(pushResponse.stream.id % 2 === 0);
-
-        pushResponse.write('This is a server-initiated response');
-
-        pushResponse.end();
-        response.end();
-      })
-    );
+  response.createPushResponse({
+    ':path': '/pushed',
+    ':method': 'GET'
+  }, common.mustCall((error, push) => {
+    assert.ifError(error);
+    assert.strictEqual(push.stream.id % 2, 0);
+    push.end(pushExpect);
+    response.end();
   }));
+});
 
-  const url = `http://localhost:${port}`;
-  const client = h2.connect(url, common.mustCall(function() {
+server.listen(0, common.mustCall(() => {
+  const port = server.address().port;
+
+  const client = h2.connect(`http://localhost:${port}`, common.mustCall(() => {
     const headers = {
       ':path': '/',
       ':method': 'GET',
-      ':scheme': 'http',
-      ':authority': `localhost:${port}`
     };
 
-    const requestStream = client.request(headers);
+    let remaining = 2;
+    function maybeClose() {
+      if (--remaining === 0) {
+        client.destroy();
+        server.close();
+      }
+    }
 
-    function onStream(pushStream, headers, flags) {
+    const req = client.request(headers);
+
+    client.on('stream', common.mustCall((pushStream, headers) => {
       assert.strictEqual(headers[':path'], '/pushed');
       assert.strictEqual(headers[':method'], 'GET');
       assert.strictEqual(headers[':scheme'], 'http');
       assert.strictEqual(headers[':authority'], `localhost:${port}`);
-      assert.strictEqual(flags, h2.constants.NGHTTP2_FLAG_END_HEADERS);
 
-      pushStream.on('data', common.mustCall(function(data) {
-        assert.strictEqual(
-          data.toString(),
-          'This is a server-initiated response'
-        );
+      let actual = '';
+      pushStream.on('push', common.mustCall((headers) => {
+        assert.strictEqual(headers[':status'], 200);
+        assert(headers['date']);
       }));
-    }
+      pushStream.setEncoding('utf8');
+      pushStream.on('data', (chunk) => actual += chunk);
+      pushStream.on('end', common.mustCall(() => {
+        assert.strictEqual(actual, pushExpect);
+        maybeClose();
+      }));
+    }));
 
-    requestStream.session.on('stream', common.mustCall(onStream));
-
-    requestStream.on('response', common.mustCall(function(headers, flags) {
+    req.on('response', common.mustCall((headers) => {
       assert.strictEqual(headers[':status'], 200);
-      assert.ok(headers['date']);
-      assert.strictEqual(flags, h2.constants.NGHTTP2_FLAG_END_HEADERS);
+      assert(headers['date']);
     }));
 
-    requestStream.on('data', common.mustCall(function(data) {
-      assert.strictEqual(
-        data.toString(),
-        'This is a client-initiated response'
-      );
+    let actual = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => actual += chunk);
+    req.on('end', common.mustCall(() => {
+      assert.strictEqual(actual, servExpect);
+      maybeClose();
     }));
-
-    requestStream.on('end', common.mustCall(function() {
-      client.destroy();
-    }));
-    requestStream.end();
   }));
 }));
