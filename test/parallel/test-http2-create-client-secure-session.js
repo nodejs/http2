@@ -13,12 +13,13 @@ function loadKey(keyname) {
     path.join(common.fixturesDir, 'keys', keyname), 'binary');
 }
 
-function onStream(stream) {
+function onStream(stream, headers) {
+  const socket = stream.session.socket;
+  assert(headers[':authority'].startsWith(socket.servername));
   stream.respond({
     'content-type': 'text/html',
     ':status': 200
   });
-  const socket = stream.session.socket;
   stream.end(JSON.stringify({
     servername: socket.servername,
     alpnProtocol: socket.alpnProtocol

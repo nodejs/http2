@@ -35,10 +35,9 @@ function onStream(stream, headers, flags) {
     trailers[':status'] = 'bar';
   });
 
-  stream.on('error', common.mustCall((err) => {
-    assert(err instanceof Error);
-    assert.strictEqual(err.code, 'ERR_HTTP2_INVALID_PSEUDOHEADER');
-  }, 1));
+  stream.on('error', common.expectsError({
+    code: 'ERR_HTTP2_INVALID_PSEUDOHEADER'
+  }));
 
   stream.end('hello world');
 }

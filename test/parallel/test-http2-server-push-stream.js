@@ -6,27 +6,27 @@ const assert = require('assert');
 const http2 = require('http2');
 
 const server = http2.createServer();
-server.on('stream', common.mustCall((stream, headers, flags) => {
+server.on('stream', common.mustCall((stream, headers) => {
   const port = server.address().port;
   if (headers[':path'] === '/') {
     stream.pushStream({
       ':scheme': 'http',
       ':path': '/foobar',
       ':authority': `localhost:${port}`,
-    }, (stream, headers) => {
-      stream.respond({
+    }, (push, headers) => {
+      push.respond({
         'content-type': 'text/html',
         ':status': 200,
         'x-push-data': 'pushed by server',
       });
-      stream.end('pushed by server data');
+      push.end('pushed by server data');
+      stream.end('test');
     });
   }
   stream.respond({
     'content-type': 'text/html',
     ':status': 200
   });
-  stream.end('test');
 }));
 
 server.listen(0, common.mustCall(() => {
@@ -35,11 +35,11 @@ server.listen(0, common.mustCall(() => {
   const client = http2.connect(`http://localhost:${port}`);
   const req = client.request(headers);
 
-  client.on('stream', common.mustCall((stream, headers, flags) => {
+  client.on('stream', common.mustCall((stream, headers) => {
     assert.strictEqual(headers[':scheme'], 'http');
     assert.strictEqual(headers[':path'], '/foobar');
     assert.strictEqual(headers[':authority'], `localhost:${port}`);
-    stream.on('push', common.mustCall((headers, flags) => {
+    stream.on('push', common.mustCall((headers) => {
       assert.strictEqual(headers[':status'], 200);
       assert.strictEqual(headers['content-type'], 'text/html');
       assert.strictEqual(headers['x-push-data'], 'pushed by server');

@@ -3,7 +3,6 @@
 
 require('../common');
 const assert = require('assert');
-const Buffer = require('buffer').Buffer;
 
 assert.doesNotThrow(() => process.binding('http2'));
 
@@ -21,14 +20,6 @@ assert.strictEqual(settings.maxFrameSize, 16384);
 
 assert.strictEqual(binding.nghttp2ErrorString(-517),
                    'GOAWAY has already been sent');
-
-const check = Buffer.from([0x00, 0x01, 0x00, 0x00, 0x10, 0x00, 0x00, 0x05,
-                           0x00, 0x00, 0x40, 0x00, 0x00, 0x04, 0x00, 0x00,
-                           0xff, 0xff, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01]);
-const val = http2.getPackedSettings(http2.getDefaultSettings());
-assert.deepStrictEqual(val, check);
-
-assert.doesNotThrow(() => assert(Buffer.isBuffer(http2.getPackedSettings())));
 
 // assert constants are present
 assert(binding.constants);
@@ -205,7 +196,13 @@ const expectedNGConstants = {
   NGHTTP2_FLAG_ACK: 1,
   NGHTTP2_FLAG_PADDED: 8,
   NGHTTP2_FLAG_PRIORITY: 32,
-  NGHTTP2_DEFAULT_WEIGHT: 16
+  NGHTTP2_DEFAULT_WEIGHT: 16,
+  NGHTTP2_SETTINGS_HEADER_TABLE_SIZE: 1,
+  NGHTTP2_SETTINGS_ENABLE_PUSH: 2,
+  NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS: 3,
+  NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE: 4,
+  NGHTTP2_SETTINGS_MAX_FRAME_SIZE: 5,
+  NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE: 6
 };
 
 const defaultSettings = {
