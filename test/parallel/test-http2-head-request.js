@@ -8,7 +8,7 @@ const http2 = require('http2');
 const errCheck = common.expectsError({
   type: Error,
   message: 'write after end'
-});
+}, 2);
 
 const {
   HTTP2_HEADER_PATH,
