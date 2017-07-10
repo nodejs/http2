@@ -100,7 +100,7 @@ server.on('listening', common.mustCall(() => {
   }));
 
   req.on('response', common.mustCall());
-  req.on('data', common.noop);
+  req.resume();
   req.on('end', common.mustCall(() => {
     server.close();
     client.destroy();

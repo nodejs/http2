@@ -12,11 +12,15 @@ const server = h2.createServer();
 // depending on the OS. The determination is based largely on operating
 // system specific timings
 server.on('stream', (stream) => {
-  stream.on('error', common.expectsError({
-    code: 'ERR_HTTP2_STREAM_ERROR',
-    type: Error,
-    message: 'Stream closed with error code 2'
-  }));
+  // Do not wrap in a must call or use common.expectsError (which now uses
+  // must call). The error may or may not be reported depending on operating
+  // system specific timings.
+  stream.on('error', (err) => {
+    if (err) {
+      assert.strictEqual(err.code, 'ERR_HTTP2_STREAM_ERROR');
+      assert.strictEqual(err.message, 'Stream closed with error code 2');
+    }
+  });
   stream.respond({});
   stream.end();
 });
@@ -31,19 +35,18 @@ server.on('listening', common.mustCall(() => {
   const err = new Error('test');
   req.destroy(err);
 
-  req.on('error', common.mustCall((e) => {
-    if (e.code === 'ERR_HTTP2_STREAM_ERROR') {
+  req.on('error', common.mustCall((err) => {
+    const fn = err.code === 'ERR_HTTP2_STREAM_ERROR' ?
       common.expectsError({
         code: 'ERR_HTTP2_STREAM_ERROR',
         type: Error,
         message: 'Stream closed with error code 2'
-      });
-    } else {
+      }) :
       common.expectsError({
         type: Error,
         message: 'test'
       });
-    }
+    fn(err);
   }, 2));
 
   req.on('streamClosed', common.mustCall((code) => {

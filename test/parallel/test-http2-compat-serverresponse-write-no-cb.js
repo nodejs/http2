@@ -10,7 +10,7 @@ const { createServer, connect } = require('http2');
 const expectedError = expectsError({
   code: 'ERR_HTTP2_STREAM_CLOSED',
   message: 'The stream is already closed'
-});
+}, 2);
 
 {
   const server = createServer();

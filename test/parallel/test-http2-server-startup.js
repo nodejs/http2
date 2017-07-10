@@ -33,7 +33,7 @@ assert.doesNotThrow(() => {
 
 // There should not be any throws
 assert.doesNotThrow(() => {
-  const server = http2.createServer(options, common.noop);
+  const server = http2.createServer(options, common.mustNotCall());
 
   server.listen(0, common.mustCall(() => server.close()));
 

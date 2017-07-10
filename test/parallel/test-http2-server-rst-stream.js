@@ -16,7 +16,7 @@ const {
   NGHTTP2_INTERNAL_ERROR
 } = http2.constants;
 
-const errCheck = common.expectsError({ code: 'ERR_HTTP2_STREAM_ERROR' });
+const errCheck = common.expectsError({ code: 'ERR_HTTP2_STREAM_ERROR' }, 8);
 
 function checkRstCode(rstMethod, expectRstCode) {
   const server = http2.createServer();

@@ -13,7 +13,7 @@ const errorCheck = common.expectsError({
   code: 'ERR_HTTP2_STREAM_ERROR',
   type: Error,
   message: `Stream closed with error code ${NGHTTP2_INTERNAL_ERROR}`
-});
+}, 2);
 
 const server = http2.createServer();
 server.on('stream', (stream) => {
