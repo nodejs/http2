@@ -266,7 +266,7 @@ class Nghttp2Stream {
     DEBUG_HTTP2("Nghttp2Stream %d: freed\n", id_);
   }
 
-  inline void FlushDataChunks();
+  inline void FlushDataChunks(bool done = false);
 
   // Resets the state of the stream instance to defaults
   inline void ResetState(

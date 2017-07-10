@@ -21,8 +21,7 @@ server.listen(0, common.mustCall(function() {
     };
     const fakeStatusCodes = {
       tooLow: 99,
-      tooHigh: 1000,
-      backwardsCompatibility: 999
+      tooHigh: 600
     };
 
     assert.strictEqual(response.statusCode, expectedDefaultStatusCode);
@@ -32,18 +31,26 @@ server.listen(0, common.mustCall(function() {
       response.statusCode = realStatusCodes.multipleChoices;
       response.statusCode = realStatusCodes.badRequest;
       response.statusCode = realStatusCodes.internalServerError;
-      response.statusCode = fakeStatusCodes.backwardsCompatibility;
     });
 
     assert.throws(function() {
       response.statusCode = realStatusCodes.continue;
-    }, RangeError);
+    }, common.expectsError({
+      code: 'ERR_HTTP2_INFO_STATUS_NOT_ALLOWED',
+      type: RangeError
+    }));
     assert.throws(function() {
       response.statusCode = fakeStatusCodes.tooLow;
-    }, RangeError);
+    }, common.expectsError({
+      code: 'ERR_HTTP2_STATUS_INVALID',
+      type: RangeError
+    }));
     assert.throws(function() {
       response.statusCode = fakeStatusCodes.tooHigh;
-    }, RangeError);
+    }, common.expectsError({
+      code: 'ERR_HTTP2_STATUS_INVALID',
+      type: RangeError
+    }));
 
     response.on('finish', common.mustCall(function() {
       server.close();

@@ -52,7 +52,6 @@ const {
   HTTP2_HEADER_COOKIE,
   HTTP2_HEADER_EXPECT,
   HTTP2_HEADER_LINK,
-  HTTP2_HEADER_LOCATION,
   HTTP2_HEADER_PREFER,
   HTTP2_HEADER_PROXY_AUTHENTICATE,
   HTTP2_HEADER_REFRESH,
@@ -189,11 +188,10 @@ const {
   HTTP2_HEADER_USER_AGENT
 ].forEach((name) => {
   const msg = `Header field "${name}" must have only a single value`;
-  assert.throws(() => mapToHeaders({[name]: [1, 2, 3]}),
-                common.expectsError({
-                  code: 'ERR_HTTP2_HEADER_SINGLE_VALUE',
-                  message: msg
-                }));
+  common.expectsError({
+    code: 'ERR_HTTP2_HEADER_SINGLE_VALUE',
+    message: msg
+  })(mapToHeaders({[name]: [1, 2, 3]}));
 });
 
 [
@@ -209,7 +207,6 @@ const {
   HTTP2_HEADER_COOKIE,
   HTTP2_HEADER_EXPECT,
   HTTP2_HEADER_LINK,
-  HTTP2_HEADER_LOCATION,
   HTTP2_HEADER_PREFER,
   HTTP2_HEADER_PROXY_AUTHENTICATE,
   HTTP2_HEADER_REFRESH,
@@ -220,7 +217,7 @@ const {
   HTTP2_HEADER_VIA,
   HTTP2_HEADER_WWW_AUTHENTICATE
 ].forEach((name) => {
-  assert.doesNotThrow(() => mapToHeaders({[name]: [1, 2, 3]}), name);
+  assert(!(mapToHeaders({[name]: [1, 2, 3]}) instanceof Error), name);
 });
 
 const regex =
@@ -242,11 +239,10 @@ const regex =
   'Proxy-Connection',
   'Keep-Alive'
 ].forEach((name) => {
-  assert.throws(() => mapToHeaders({[name]: 'abc'}),
-                common.expectsError({
-                  code: 'ERR_HTTP2_INVALID_CONNECTION_HEADERS',
-                  message: regex
-                }));
+  common.expectsError({
+    code: 'ERR_HTTP2_INVALID_CONNECTION_HEADERS',
+    message: regex
+  })(mapToHeaders({[name]: 'abc'}));
 });
 
-assert.doesNotThrow(() => mapToHeaders({ te: 'trailers' }));
+assert(!(mapToHeaders({ te: 'trailers' }) instanceof Error));

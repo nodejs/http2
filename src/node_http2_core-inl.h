@@ -62,7 +62,7 @@ inline Nghttp2Stream* Nghttp2Session::FindStream(int32_t id) {
 }
 
 // Flushes any received queued chunks of data out to the JS layer
-inline void Nghttp2Stream::FlushDataChunks() {
+inline void Nghttp2Stream::FlushDataChunks(bool done) {
   while (data_chunks_head_ != nullptr) {
     DEBUG_HTTP2("Nghttp2Stream %d: emitting data chunk\n", id_);
     nghttp2_data_chunk_t* item = data_chunks_head_;
@@ -71,6 +71,8 @@ inline void Nghttp2Stream::FlushDataChunks() {
     session_->OnDataChunk(this, item);
   }
   data_chunks_tail_ = nullptr;
+  if (done)
+    session_->OnDataChunk(this, nullptr);
 }
 
 // Passes all of the the chunks for a data frame out to the JS layer
@@ -83,7 +85,9 @@ inline void Nghttp2Session::HandleDataFrame(const nghttp2_frame* frame) {
   Nghttp2Stream* stream = this->FindStream(id);
   // If the stream does not exist, something really bad happened
   CHECK_NE(stream, nullptr);
-  stream->FlushDataChunks();
+  bool done = (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) ==
+              NGHTTP2_FLAG_END_STREAM;
+  stream->FlushDataChunks(done);
 }
 
 // Passes all of the collected headers for a HEADERS frame out to the JS layer.
