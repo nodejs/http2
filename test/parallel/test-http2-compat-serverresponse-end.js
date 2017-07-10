@@ -22,7 +22,7 @@ const {
     response.end(mustNotCall());
   }));
   server.listen(0, mustCall(() => {
-    const {port} = server.address();
+    const { port } = server.address();
     const url = `http://localhost:${port}`;
     const client = connect(url, mustCall(() => {
       const headers = {
@@ -45,12 +45,12 @@ const {
   // is already closed. Headers, however, can still be sent to the client.
   const server = createServer(mustCall((request, response) => {
     strictEqual(response.finished, true);
-    response.writeHead(HTTP_STATUS_OK, {foo: 'bar'});
+    response.writeHead(HTTP_STATUS_OK, { foo: 'bar' });
     response.flushHeaders();
     response.end(mustNotCall());
   }));
   server.listen(0, mustCall(() => {
-    const {port} = server.address();
+    const { port } = server.address();
     const url = `http://localhost:${port}`;
     const client = connect(url, mustCall(() => {
       const headers = {
