@@ -1587,6 +1587,26 @@ These will be reported using either a synchronous `throw` or via an `'error'`
 event on the `Http2Stream`, `Http2Session` or HTTP/2 Server objects, depending
 on where and when the error occurs.
 
+### Push streams on the client
+
+To receive pushed streams on the client, set a listener for the `'stream'`
+event on the `ClientHttp2Session`:
+
+```js
+const http2 = require('http2');
+
+const client = http2.connect('http://localhost');
+
+client.on('stream', (pushedStream, requestHeaders) => {
+  pushedStream.on('push', (responseHeaders) => {
+    // process response headers
+  });
+  pushedStream.on('data', (chunk) => { /* handle pushed data */ });
+});
+
+const req = client.request({ ':path': '/' });
+```
+
 ### Supporting the CONNECT method
 
 The `CONNECT` method is used to allow an HTTP/2 server to be used as a proxy
